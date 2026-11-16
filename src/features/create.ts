@@ -14,6 +14,7 @@ import {
   deferEphemeral,
   ensureLayout,
   fetchMember,
+  isLayoutInitialized,
   replyEphemeral,
   replyError,
   syncMeetupAccess,
@@ -111,6 +112,13 @@ subcommand(
       const guild = await requireGuild(interaction);
       if (!guild) return;
       await deferEphemeral(interaction);
+      if (!(await isLayoutInitialized(guild))) {
+        await replyEphemeral(
+          interaction,
+          "サーバーのセットアップが完了していません。管理者が `/meetup init` を実行してください。",
+        );
+        return;
+      }
 
       const startAt = parseDateTime(interaction.options.getString("start", true), config.timeZone);
       if (startAt === null) {

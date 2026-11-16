@@ -18,6 +18,7 @@ test("all feature modules register their subcommands", () => {
     "edit",
     "host",
     "info",
+    "init",
     "invite",
     "leave",
     "list",

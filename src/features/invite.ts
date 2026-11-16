@@ -13,6 +13,7 @@ import {
   deferEphemeral,
   deleteThread,
   fetchMember,
+  isLayoutInitialized,
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
@@ -159,6 +160,13 @@ subcommand(
         return;
       }
       await deferEphemeral(interaction);
+      if (!(await isLayoutInitialized(guild))) {
+        await replyEphemeral(
+          interaction,
+          "サーバーのセットアップが完了していません。管理者が `/meetup init` を実行してください。",
+        );
+        return;
+      }
 
       const meetup = getMeetup(interaction.options.getInteger("meetup", true));
       if (!meetup || meetup.guildId !== guild.id) {

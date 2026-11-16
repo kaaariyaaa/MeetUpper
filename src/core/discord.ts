@@ -28,6 +28,33 @@ export interface GuildLayout {
   inviteChannel: TextChannel;
 }
 
+/** True when the MeetUp category, オフ会募集 forum and 招待 channel all exist. */
+export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
+  const find = () => {
+    const category = guild.channels.cache.find(
+      (channel): channel is CategoryChannel =>
+        channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
+    );
+    if (!category) return false;
+    const hasForum = guild.channels.cache.some(
+      (channel) =>
+        channel.parentId === category.id &&
+        channel.type === ChannelType.GuildForum &&
+        channel.name === config.forumName,
+    );
+    const hasInvite = guild.channels.cache.some(
+      (channel) =>
+        channel.parentId === category.id &&
+        channel.type === ChannelType.GuildText &&
+        channel.name === config.inviteName,
+    );
+    return hasForum && hasInvite;
+  };
+  if (find()) return true;
+  await guild.channels.fetch().catch(() => undefined);
+  return find();
+}
+
 export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
   let category = guild.channels.cache.find(
     (channel): channel is CategoryChannel =>

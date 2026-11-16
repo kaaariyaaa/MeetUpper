@@ -1,6 +1,7 @@
 // Feature modules register themselves through src/core/registry.ts when imported.
 // Add new feature files here and keep the import list stable so parallel work does
 // not conflict on this file.
+import "./init.ts";
 import "./create.ts";
 import "./apply.ts";
 import "./invite.ts";

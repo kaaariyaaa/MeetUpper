@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder, type Guild } from "discord.js";
 import { config } from "./config.ts";
-import { ensureLayout, replyError } from "./core/discord.ts";
+import { replyError } from "./core/discord.ts";
 import { findButton, findModal, getSubcommands, runSetups } from "./core/registry.ts";
 import { loadFeatures } from "./features/index.ts";
 
@@ -36,7 +36,6 @@ client.once(Events.ClientReady, async (readyClient) => {
     await registerGuildCommands(guild).catch((error) =>
       console.error(`スラッシュコマンドの登録に失敗しました: ${guild.id}`, error),
     );
-    await ensureLayout(guild).catch((error) => console.error(`レイアウト初期化失敗: ${guild.id}`, error));
   }
 });
 
@@ -44,7 +43,6 @@ client.on(Events.GuildCreate, async (guild) => {
   await registerGuildCommands(guild).catch((error) =>
     console.error(`スラッシュコマンドの登録に失敗しました: ${guild.id}`, error),
   );
-  await ensureLayout(guild).catch((error) => console.error(`レイアウト初期化失敗: ${guild.id}`, error));
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
