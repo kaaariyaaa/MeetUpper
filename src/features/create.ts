@@ -1,2 +1,268 @@
-// Feature stub: implemented in a dedicated worktree task.
-export {};
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  SlashCommandSubcommandBuilder,
+  type ChatInputCommandInteraction,
+  type Guild,
+  type TextChannel,
+} from "discord.js";
+import { config } from "../config.ts";
+import {
+  createMeetupChannel,
+  ensureLayout,
+  fetchMember,
+  replyEphemeral,
+  replyError,
+} from "../core/discord.ts";
+import { syncEventCreation } from "../core/events.ts";
+import {
+  addCohost,
+  canManage,
+  countApproved,
+  createMeetup,
+  getMeetup,
+  getParticipant,
+  listMeetups,
+  updateMeetup,
+} from "../core/meetup.ts";
+import { subcommand } from "../core/registry.ts";
+import { discordTimestamp, parseDateTime } from "../core/time.ts";
+import type { ApprovalMode, MeetupMode } from "../core/types.ts";
+import { dateTimeHint, meetupEmbed, publicEmbed } from "../core/views.ts";
+
+/** "カンマ区切りのメンションまたはID" から数字IDだけを取り出す。 */
+export function extractCohostIds(input: string): string[] {
+  const ids = new Set<string>();
+  for (const match of input.matchAll(/<@!?(\d+)>|(\d+)/g)) {
+    const id = match[1] ?? match[2];
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+async function requireGuild(interaction: ChatInputCommandInteraction): Promise<Guild | null> {
+  if (!interaction.guild) {
+    await replyEphemeral(interaction, "このコマンドはサーバー内でのみ使用できます。");
+    return null;
+  }
+  return interaction.guild;
+}
+
+function parseOptionalDateTime(input: string | null): number | null | undefined {
+  if (input === null || input.trim() === "") return null;
+  const parsed = parseDateTime(input, config.timeZone);
+  return parsed ?? undefined;
+}
+
+subcommand(
+  new SlashCommandSubcommandBuilder()
+    .setName("create")
+    .setDescription("オフ会を作成します")
+    .addStringOption((option) =>
+      option.setName("name").setDescription("オフ会名").setMaxLength(100).setRequired(true),
+    )
+    .addStringOption((option) => option.setName("description").setDescription("説明"))
+    .addIntegerOption((option) =>
+      option.setName("capacity").setDescription("定員").setMinValue(1).setMaxValue(1000).setRequired(true),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("start")
+        .setDescription("開催日時 (例: 2026-12-01 19:00, Asia/Tokyo)")
+        .setRequired(true),
+    )
+    .addStringOption((option) => option.setName("meeting-time").setDescription("集合時間"))
+    .addStringOption((option) => option.setName("meeting-place").setDescription("集合場所"))
+    .addStringOption((option) =>
+      option
+        .setName("mode")
+        .setDescription("公開モード")
+        .setRequired(true)
+        .addChoices({ name: "公開", value: "PUBLIC" }, { name: "招待制", value: "PRIVATE" }),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("approval")
+        .setDescription("承認方式")
+        .addChoices({ name: "主催者承認", value: "HOST" }, { name: "参加者投票", value: "VOTE" }),
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("required-votes")
+        .setDescription("参加者投票の必要票数")
+        .setMinValue(1)
+        .setMaxValue(100),
+    )
+    .addStringOption((option) =>
+      option.setName("cohosts").setDescription("共同主催者のメンションまたはIDをカンマ区切り"),
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("event")
+        .setDescription("Discordスケジュールイベントを作成する (Publicのみ)"),
+    ),
+  async (interaction) => {
+    try {
+      const guild = await requireGuild(interaction);
+      if (!guild) return;
+
+      const startAt = parseDateTime(interaction.options.getString("start", true), config.timeZone);
+      if (startAt === null) {
+        await replyEphemeral(interaction, `開催日時を解析できませんでした。\n${dateTimeHint()}`);
+        return;
+      }
+
+      const meetingAt = parseOptionalDateTime(interaction.options.getString("meeting-time"));
+      if (meetingAt === undefined) {
+        await replyEphemeral(interaction, `集合時間を解析できませんでした。\n${dateTimeHint()}`);
+        return;
+      }
+
+      const mode = interaction.options.getString("mode", true) as MeetupMode;
+      const approvalMode = (interaction.options.getString("approval") ?? "HOST") as ApprovalMode;
+      const requiredVotes = interaction.options.getInteger("required-votes") ?? 1;
+      if (approvalMode === "VOTE" && requiredVotes < 1) {
+        await replyEphemeral(interaction, "参加者投票の必要票数は1以上で指定してください。");
+        return;
+      }
+
+      const eventRequested = interaction.options.getBoolean("event") ?? true;
+      const eventEnabled = mode === "PUBLIC" && eventRequested;
+      const meetup = createMeetup({
+        guildId: guild.id,
+        hostId: interaction.user.id,
+        name: interaction.options.getString("name", true),
+        description: interaction.options.getString("description") ?? "",
+        capacity: interaction.options.getInteger("capacity", true),
+        startAt,
+        meetingAt,
+        meetingPlace: interaction.options.getString("meeting-place"),
+        mode,
+        approvalMode,
+        requiredVotes,
+        eventEnabled,
+      });
+
+      const cohostInput = interaction.options.getString("cohosts");
+      if (cohostInput) {
+        const botId = guild.client.user?.id;
+        for (const userId of extractCohostIds(cohostInput)) {
+          if (userId === meetup.hostId || userId === botId) continue;
+          if (!(await fetchMember(guild, userId))) continue;
+          addCohost(meetup.id, userId);
+        }
+      }
+
+      let channel: TextChannel | null = null;
+      try {
+        channel = await createMeetupChannel(guild, meetup);
+      } catch (error) {
+        console.error("オフ会専用チャンネルの作成に失敗しました", error);
+      }
+
+      if (channel) {
+        await replyEphemeral(
+          interaction,
+          `オフ会を作成しました。\n専用チャンネル: <#${channel.id}>\nオフ会ID: ${meetup.id}`,
+        );
+      } else {
+        await replyEphemeral(
+          interaction,
+          `オフ会は作成されましたが、専用チャンネルの作成に失敗しました。\nオフ会ID: ${meetup.id}`,
+        );
+      }
+
+      if (mode !== "PUBLIC") return;
+
+      try {
+        const layout = await ensureLayout(guild);
+        const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`apply:start:${meetup.id}`)
+            .setLabel("参加申請")
+            .setStyle(ButtonStyle.Primary),
+        );
+        const thread = await layout.forum.threads.create({
+          name: meetup.name.slice(0, 100),
+          message: { embeds: [publicEmbed(meetup)], components: [applyRow] },
+        });
+        updateMeetup(meetup.id, { forumThreadId: thread.id });
+      } catch (error) {
+        console.error("募集フォーラムへの投稿に失敗しました", error);
+        await replyEphemeral(
+          interaction,
+          "オフ会は作成されましたが、募集フォーラムへの投稿に失敗しました。",
+        );
+      }
+
+      if (eventEnabled) await syncEventCreation(guild, meetup);
+    } catch (error) {
+      await replyError(interaction, error);
+    }
+  },
+);
+
+subcommand(
+  new SlashCommandSubcommandBuilder()
+    .setName("list")
+    .setDescription("ACTIVEなオフ会の一覧を表示します"),
+  async (interaction) => {
+    try {
+      const guild = await requireGuild(interaction);
+      if (!guild) return;
+
+      const meetups = listMeetups(guild.id);
+      if (meetups.length === 0) {
+        await replyEphemeral(interaction, "ACTIVEなオフ会はありません");
+        return;
+      }
+
+      const lines = meetups.map(
+        (meetup) =>
+          `**#${meetup.id} ${meetup.name}**\n${discordTimestamp(meetup.startAt)} / ${meetup.mode} / ${meetup.state} / 確定 ${countApproved(meetup.id)}人`,
+      );
+      const embed = new EmbedBuilder()
+        .setTitle("オフ会一覧")
+        .setDescription(lines.join("\n").slice(0, 4000));
+      await replyEphemeral(interaction, { embeds: [embed] });
+    } catch (error) {
+      await replyError(interaction, error);
+    }
+  },
+);
+
+subcommand(
+  new SlashCommandSubcommandBuilder()
+    .setName("show")
+    .setDescription("オフ会の詳細を表示します")
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
+    ),
+  async (interaction) => {
+    try {
+      const guild = await requireGuild(interaction);
+      if (!guild) return;
+
+      const meetup = getMeetup(interaction.options.getInteger("meetup", true));
+      if (!meetup || meetup.guildId !== guild.id) {
+        await replyEphemeral(interaction, "オフ会が見つかりません。");
+        return;
+      }
+
+      const userId = interaction.user.id;
+      const manager = canManage(meetup, userId);
+      const participant = getParticipant(meetup.id, userId);
+      if (meetup.mode === "PRIVATE" && !manager && !participant) {
+        await replyEphemeral(interaction, "このオフ会を表示する権限がありません。");
+        return;
+      }
+
+      const includeMeetingPlace = manager || participant?.state === "APPROVED";
+      await replyEphemeral(interaction, { embeds: [meetupEmbed(meetup, { includeMeetingPlace })] });
+    } catch (error) {
+      await replyError(interaction, error);
+    }
+  },
+);
