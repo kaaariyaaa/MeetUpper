@@ -10,7 +10,9 @@ import {
 } from "discord.js";
 import {
   createInviteThread,
+  deferEphemeral,
   deleteThread,
+  fetchMember,
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
@@ -20,11 +22,13 @@ import {
 import {
   approveParticipant,
   canManage,
+  countApproved,
   createInviteRequest,
   decideInviteRequest,
   getInviteRequest,
   getMeetup,
   getParticipant,
+  hasPendingInviteRequest,
   listCohosts,
   setParticipantState,
 } from "../core/meetup.ts";
@@ -153,6 +157,7 @@ subcommand(
         await replyEphemeral(interaction, "サーバー内でのみ実行できます");
         return;
       }
+      await deferEphemeral(interaction);
 
       const meetup = getMeetup(interaction.options.getInteger("meetup", true));
       if (!meetup || meetup.guildId !== guild.id) {
@@ -211,6 +216,10 @@ subcommand(
       }
 
       if (getParticipant(meetup.id, actorId)?.state === "APPROVED") {
+        if (hasPendingInviteRequest(meetup.id, target.id)) {
+          await replyEphemeral(interaction, "この対象への招待申請はすでに承認待ちです");
+          return;
+        }
         const request = createInviteRequest(meetup.id, actorId, target.id);
         const sent = await sendToMeetupChannel(guild, meetup, {
           content: `${adminMentions(meetup)}\n<@${actorId}> さんから招待申請が届きました。`,
@@ -263,11 +272,29 @@ button(/^invite:accept:(\d+)$/, async (interaction, args) => {
       return;
     }
 
-    approveParticipant(meetup, interaction.user.id, "invite");
     const guild = interaction.guild ?? interaction.client.guilds.cache.get(meetup.guildId) ?? null;
-    if (guild) await syncMeetupAccess(guild, meetup);
+    await interaction.deferUpdate();
+    if (guild && !(await fetchMember(guild, interaction.user.id))) {
+      await interaction.editReply({
+        content: "サーバーに参加していないため、この招待には参加できません。",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
 
-    await interaction.update({ content: "参加が確定しました", embeds: [], components: [] });
+    approveParticipant(meetup, interaction.user.id, "invite");
+    const overCapacity = countApproved(meetup.id) > meetup.capacity;
+    await interaction.editReply({
+      content: `参加が確定しました${overCapacity ? "\n⚠️ 定員を超えています。主催者へ確認してください。" : ""}`,
+      embeds: [],
+      components: [],
+    });
+    if (guild) {
+      await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) =>
+        console.error("参加者の権限同期に失敗しました", error),
+      );
+    }
     await deleteThread(privateThreadOf(interaction));
   } catch (error) {
     await replyError(interaction, error);
@@ -290,10 +317,13 @@ button(/^invite:decline:(\d+)$/, async (interaction, args) => {
       return;
     }
 
+    await interaction.deferUpdate();
     setParticipantState(meetup.id, interaction.user.id, "DECLINED");
-    const reapply = `招待を辞退しました。後から参加申請する場合は /meetup apply meetup:${meetup.id} を実行してください。`;
-    await interaction.update({ content: reapply, embeds: [], components: [] });
-    if (!interaction.guild) await tryDM(interaction.client, interaction.user.id, reapply);
+    await interaction.editReply({
+      content: `招待を辞退しました。後から参加申請する場合は /meetup apply meetup:${meetup.id} を実行してください。`,
+      embeds: [],
+      components: [],
+    });
     await deleteThread(privateThreadOf(interaction));
   } catch (error) {
     await replyError(interaction, error);
@@ -335,7 +365,15 @@ button(/^invite:approve:(\d+)$/, async (interaction, args) => {
       return;
     }
 
-    decideInviteRequest(request.id, "APPROVED", interaction.user.id);
+    await interaction.deferUpdate();
+    if (decideInviteRequest(request.id, "APPROVED", interaction.user.id) === 0) {
+      await interaction.editReply({
+        content: "この招待申請はすでに処理済みです",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
     setParticipantState(meetup.id, request.targetId, "INVITED", {
       invitedBy: request.requesterId,
     });
@@ -347,7 +385,7 @@ button(/^invite:approve:(\d+)$/, async (interaction, args) => {
       request,
       `招待申請が承認されました。${deliveryLabel(delivery)}`,
     );
-    await interaction.update({
+    await interaction.editReply({
       content: `招待申請を承認しました。${deliveryLabel(delivery)}（対象: <@${request.targetId}>）`,
       embeds: [],
       components: [],
@@ -387,9 +425,17 @@ button(/^invite:reject:(\d+)$/, async (interaction, args) => {
       return;
     }
 
-    decideInviteRequest(request.id, "REJECTED", interaction.user.id);
+    await interaction.deferUpdate();
+    if (decideInviteRequest(request.id, "REJECTED", interaction.user.id) === 0) {
+      await interaction.editReply({
+        content: "この招待申請はすでに処理済みです",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
     await notifyRequester(interaction, guild, meetup, request, "招待申請は却下されました。");
-    await interaction.update({
+    await interaction.editReply({
       content: `招待申請を却下しました（対象: <@${request.targetId}>）`,
       embeds: [],
       components: [],

@@ -48,7 +48,8 @@ export async function cancelEvent(guild: Guild, meetup: Meetup): Promise<void> {
   try {
     const event = await guild.scheduledEvents.fetch(meetup.eventId);
     if (event.status !== GuildScheduledEventStatus.Canceled) {
-      await event.delete();
+      // Keep the event visible as cancelled instead of deleting the public record.
+      await event.setStatus(GuildScheduledEventStatus.Canceled);
     }
   } catch {
     // event may already be gone
@@ -63,6 +64,7 @@ export async function updateEvent(guild: Guild, meetup: Meetup): Promise<void> {
       name: meetup.name.slice(0, 100),
       description: publicEventDescription(meetup),
       scheduledStartTime: new Date(meetup.startAt),
+      scheduledEndTime: new Date(meetup.startAt + DEFAULT_EVENT_DURATION_MS),
     });
   } catch {
     // event may already be gone

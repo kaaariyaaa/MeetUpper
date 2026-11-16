@@ -11,10 +11,12 @@ import {
 import { config } from "../config.ts";
 import {
   createMeetupChannel,
+  deferEphemeral,
   ensureLayout,
   fetchMember,
   replyEphemeral,
   replyError,
+  syncMeetupAccess,
 } from "../core/discord.ts";
 import { syncEventCreation } from "../core/events.ts";
 import {
@@ -108,10 +110,15 @@ subcommand(
     try {
       const guild = await requireGuild(interaction);
       if (!guild) return;
+      await deferEphemeral(interaction);
 
       const startAt = parseDateTime(interaction.options.getString("start", true), config.timeZone);
       if (startAt === null) {
         await replyEphemeral(interaction, `開催日時を解析できませんでした。\n${dateTimeHint()}`);
+        return;
+      }
+      if (startAt <= Date.now()) {
+        await replyEphemeral(interaction, "開催日時は未来の日時を指定してください。");
         return;
       }
 
@@ -127,13 +134,17 @@ subcommand(
         mode === "PRIVATE"
           ? "HOST"
           : ((interaction.options.getString("approval") ?? "HOST") as ApprovalMode);
-      const requiredVotes = interaction.options.getInteger("required-votes") ?? 1;
-      if (approvalMode === "VOTE" && requiredVotes < 1) {
-        await replyEphemeral(interaction, "参加者投票の必要票数は1以上で指定してください。");
+      const requiredVotesInput = interaction.options.getInteger("required-votes");
+      if (approvalMode === "VOTE" && requiredVotesInput === null) {
+        await replyEphemeral(
+          interaction,
+          "参加者投票を選ぶ場合は必要票数 (required-votes) も指定してください。",
+        );
         return;
       }
+      const requiredVotes = requiredVotesInput ?? 1;
 
-      const eventRequested = interaction.options.getBoolean("event") ?? true;
+      const eventRequested = interaction.options.getBoolean("event") ?? false;
       const eventEnabled = mode === "PUBLIC" && eventRequested;
       const meetup = createMeetup({
         guildId: guild.id,
@@ -163,6 +174,8 @@ subcommand(
       let channel: TextChannel;
       try {
         channel = await createMeetupChannel(guild, meetup);
+        // Cohosts named at creation need their overwrites before any other action syncs them.
+        await syncMeetupAccess(guild, getMeetup(meetup.id)!);
       } catch (error) {
         console.error("オフ会専用チャンネルの作成に失敗しました", error);
         deleteMeetup(meetup.id);
@@ -202,7 +215,16 @@ subcommand(
         );
       }
 
-      if (eventEnabled) await syncEventCreation(guild, meetup);
+      if (eventEnabled) {
+        const event = await syncEventCreation(guild, meetup);
+        if (!event) {
+          await replyEphemeral(
+            interaction,
+            "オフ会は作成されましたが、Discordスケジュールイベントを作成できませんでした。" +
+              "Botに「イベントを作成」権限があるか確認してください。",
+          );
+        }
+      }
     } catch (error) {
       await replyError(interaction, error);
     }

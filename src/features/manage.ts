@@ -28,6 +28,8 @@ import {
 } from "../core/meetup.ts";
 import {
   archiveChannel,
+  deferEphemeral,
+  fetchMember,
   replyEphemeral,
   replyError,
   revokeChannelAccess,
@@ -37,7 +39,7 @@ import {
 } from "../core/discord.ts";
 import { cancelEvent, updateEvent } from "../core/events.ts";
 import { parseDateTime } from "../core/time.ts";
-import { dateTimeHint, meetupEmbed, participantsSummary } from "../core/views.ts";
+import { dateTimeHint, meetupEmbed, participantsSummary, publicEmbed } from "../core/views.ts";
 import type { Meetup } from "../core/types.ts";
 
 const ABORT_ID = "manage:abort";
@@ -51,6 +53,7 @@ async function runCommand(
     await replyEphemeral(interaction, "サーバー内でのみ使用できます。");
     return;
   }
+  await deferEphemeral(interaction);
   try {
     await action(guild);
   } catch (error) {
@@ -154,6 +157,7 @@ subcommand(
     await runCommand(interaction, async (guild) => {
       const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
       requireManage(meetup, interaction.user.id);
+      requireActive(meetup);
 
       const timeInput = interaction.options.getString("meeting-time")?.trim();
       const placeInput = interaction.options.getString("meeting-place")?.trim();
@@ -192,6 +196,7 @@ subcommand(
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
       const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      requireActive(meetup);
       const actorId = interaction.user.id;
 
       if (getParticipant(meetup.id, actorId)?.state !== "APPROVED") {
@@ -252,8 +257,12 @@ subcommand(
     await runCommand(interaction, async (guild) => {
       const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
       requireHost(meetup, interaction.user.id);
+      requireActive(meetup);
       const target = interaction.options.getUser("user", true);
       const action = interaction.options.getString("action", true);
+      if (!(await fetchMember(guild, target.id))) {
+        throw new Error("対象ユーザーがこのサーバーに参加していません。");
+      }
 
       if (action === "add") {
         addCohost(meetup.id, target.id);
@@ -288,9 +297,13 @@ subcommand(
     await runCommand(interaction, async (guild) => {
       const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
       requireHost(meetup, interaction.user.id);
+      requireActive(meetup);
       const target = interaction.options.getUser("user", true);
       if (target.bot || target.id === interaction.user.id) {
         throw new Error("自分自身やBotを主催者にすることはできません。");
+      }
+      if (!(await fetchMember(guild, target.id))) {
+        throw new Error("対象ユーザーがこのサーバーに参加していません。");
       }
 
       const previousHostId = meetup.hostId;
@@ -365,6 +378,18 @@ subcommand(
         scheduleReminders(updated.id, updated.startAt);
       }
       if (updated.mode === "PUBLIC" && updated.eventId) await updateEvent(guild, updated);
+      if (updated.forumThreadId) {
+        try {
+          const thread = await guild.channels.fetch(updated.forumThreadId);
+          if (thread?.isThread()) {
+            await thread.setName(updated.name.slice(0, 100));
+            const starter = await thread.fetchStarterMessage().catch(() => null);
+            if (starter) await starter.edit({ embeds: [publicEmbed(updated)] });
+          }
+        } catch (error) {
+          console.error("募集投稿の更新に失敗しました", error);
+        }
+      }
 
       const warnings: string[] = [];
       if (capacity !== null && countApproved(updated.id) > capacity) {
@@ -444,8 +469,12 @@ button(/^manage:confirm-archive:(\d+)$/, async (interaction, args) => {
     requireActive(meetup);
 
     archiveMeetup(meetup);
-    await archiveChannel(guild, getMeetup(meetup.id)!);
+    const updated = getMeetup(meetup.id)!;
     await interaction.update({ content: "アーカイブしました", embeds: [], components: [] });
+    await archiveChannel(guild, updated);
+    await syncMeetupAccess(guild, updated).catch((error) =>
+      console.error("アーカイブ後の権限同期に失敗しました", error),
+    );
   });
 });
 
@@ -457,14 +486,13 @@ button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
 
     cancelMeetup(meetup);
     const updated = getMeetup(meetup.id)!;
-    await cancelEvent(guild, updated);
+    await interaction.update({ content: "オフ会を中止しました", embeds: [], components: [] });
 
+    await cancelEvent(guild, updated);
     const message = `オフ会が中止されました: ${updated.name}`;
     await notifyChannel(guild, updated.id, message);
     const approved = listParticipants(updated.id, ["APPROVED"]);
     await Promise.all(approved.map((participant) => tryDM(interaction.client, participant.userId, message)));
-
-    await interaction.update({ content: "オフ会を中止しました", embeds: [], components: [] });
   });
 });
 

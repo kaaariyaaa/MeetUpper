@@ -20,7 +20,9 @@
      - Manage Channels（専用チャンネルの作成・権限設定・移動）
      - Manage Roles（チャンネル権限の上書きに必要）
      - Manage Threads / Create Private Threads（招待スレッド）
-     - Manage Events（スケジュールイベント連携）
+     - Send Messages in Threads（招待スレッド・募集投稿への返信）
+     - Create Events（外部スケジュールイベントの作成）
+     - Manage Events（スケジュールイベントの変更）
      - Mention Everyone は不要
 4. Bot の **Privileged Gateway Intents** はすべて無効のままで動作する（Guilds intent のみ使用）。
 

@@ -64,11 +64,10 @@ function makeMeetup(options: {
 }
 
 function insertDueReminder(meetupId: number, kind: string): void {
-  db.query("INSERT INTO reminders (meetup_id, kind, remind_at) VALUES (?, ?, ?)").run(
-    meetupId,
-    kind,
-    Date.now() - 1000,
-  );
+  db.query(
+    `INSERT INTO reminders (meetup_id, kind, remind_at) VALUES (?, ?, ?)
+     ON CONFLICT(meetup_id, kind) DO UPDATE SET remind_at = excluded.remind_at, sent_at = NULL`,
+  ).run(meetupId, kind, Date.now() - 1000);
 }
 
 function isSent(meetupId: number, kind: string): boolean {
@@ -93,6 +92,12 @@ async function invokeRemind(
     options: { getInteger: () => meetupId },
     deferred: false,
     replied: false,
+    deferReply: async () => {
+      interaction.deferred = true;
+    },
+    editReply: async (payload: { content: string }) => {
+      replies.push(payload.content);
+    },
     reply: async (payload: { content: string }) => {
       replies.push(payload.content);
     },

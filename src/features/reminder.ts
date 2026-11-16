@@ -1,5 +1,5 @@
-import { Events, SlashCommandSubcommandBuilder, type Client } from "discord.js";
-import { getMeetupChannel, replyEphemeral, replyError } from "../core/discord.ts";
+import { SlashCommandSubcommandBuilder, type Client } from "discord.js";
+import { deferEphemeral, getMeetupChannel, replyEphemeral, replyError } from "../core/discord.ts";
 import { canManage, dueReminders, getMeetup, listParticipants, markReminderSent } from "../core/meetup.ts";
 import { setup, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
@@ -92,7 +92,6 @@ setup((client) => {
   void tick(client);
   const timer = setInterval(() => void tick(client), 30_000);
   timer.unref?.();
-  client.once(Events.ClientReady, () => void tick(client));
 });
 
 subcommand(
@@ -107,6 +106,7 @@ subcommand(
       await replyEphemeral(interaction, "このコマンドはサーバー内でのみ使用できます。");
       return;
     }
+    await deferEphemeral(interaction);
     try {
       const meetupId = interaction.options.getInteger("meetup", true);
       const meetup = getMeetup(meetupId);

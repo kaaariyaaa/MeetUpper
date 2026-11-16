@@ -104,7 +104,7 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
       return;
     }
     const meetup = getMeetup(id);
-    if (!meetup) {
+    if (!meetup || meetup.guildId !== interaction.guild.id) {
       await replyEphemeral(interaction, "オフ会が見つかりません。");
       return;
     }
@@ -120,9 +120,9 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
     const guild = interaction.guild;
     cancelMeetup(meetup);
     const cancelled = getMeetup(id)!;
-    await cancelEvent(guild, cancelled);
     await interaction.update({ content: "オフ会を中止しました", embeds: [], components: [] });
 
+    await cancelEvent(guild, cancelled);
     await sendToMeetupChannel(guild, cancelled, {
       content: `オフ会「${cancelled.name}」は中止されました。`,
     });
@@ -150,7 +150,7 @@ button(/^recover:keep:(\d+)$/, async (interaction: ButtonInteraction, args) => {
       return;
     }
     const meetup = getMeetup(id);
-    if (!meetup) {
+    if (!meetup || meetup.guildId !== interaction.guild.id) {
       await replyEphemeral(interaction, "オフ会が見つかりません。");
       return;
     }

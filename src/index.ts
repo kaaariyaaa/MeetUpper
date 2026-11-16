@@ -20,6 +20,9 @@ const commandJson = meetupCommand.toJSON();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+// Register listeners (channel-delete recovery, reminder timer) before the gateway connects.
+await runSetups(client);
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
   try {
@@ -36,7 +39,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   for (const guild of readyClient.guilds.cache.values()) {
     await ensureLayout(guild).catch((error) => console.error(`レイアウト初期化失敗: ${guild.id}`, error));
   }
-  await runSetups(readyClient);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

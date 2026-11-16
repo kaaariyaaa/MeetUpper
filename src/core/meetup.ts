@@ -52,7 +52,9 @@ export function createMeetup(input: CreateMeetupInput): Meetup {
       input.eventEnabled ? 1 : 0,
       now,
     ) as Parameters<typeof toMeetup>[0];
-  return toMeetup(row);
+  const meetup = toMeetup(row);
+  scheduleReminders(meetup.id, meetup.startAt);
+  return meetup;
 }
 
 export function deleteMeetup(id: number): void {
@@ -198,7 +200,15 @@ export function setParticipantState(
   const now = Date.now();
   const previous = getParticipant(meetupId, userId);
   const invitedBy = options.invitedBy ?? previous?.invitedBy ?? null;
-  const invitedAt = options.invitedBy ? (previous?.invitedAt ?? now) : (previous?.invitedAt ?? null);
+  const invitedAt = options.invitedBy ? now : (previous?.invitedAt ?? null);
+
+  // A new application starts from zero votes; a former participant cannot keep voting.
+  if (state === "APPLIED") {
+    db.query("DELETE FROM votes WHERE meetup_id = ? AND applicant_id = ?").run(meetupId, userId);
+  }
+  if (previous?.state === "APPROVED" && state !== "APPROVED") {
+    db.query("DELETE FROM votes WHERE meetup_id = ? AND voter_id = ?").run(meetupId, userId);
+  }
   const appliedAt = state === "APPLIED" ? now : (previous?.appliedAt ?? null);
   const approvedBy = state === "APPROVED" ? (options.approvedBy ?? previous?.approvedBy ?? null) : (previous?.approvedBy ?? null);
   const approvedAt = state === "APPROVED" ? now : (previous?.approvedAt ?? null);
@@ -217,6 +227,10 @@ export function setParticipantState(
        updated_at = excluded.updated_at`,
   ).run(meetupId, userId, state, invitedBy, invitedAt, appliedAt, approvedBy, approvedAt, now);
   return getParticipant(meetupId, userId)!;
+}
+
+export function deleteParticipant(meetupId: number, userId: string): void {
+  db.query("DELETE FROM participants WHERE meetup_id = ? AND user_id = ?").run(meetupId, userId);
 }
 
 /* --- votes --- */
@@ -264,12 +278,18 @@ export function getInviteRequest(id: number): InviteRequest | null {
   return row ? toInviteRequest(row) : null;
 }
 
-export function decideInviteRequest(id: number, status: InviteRequestStatus, decidedBy: string): void {
-  db.query("UPDATE invite_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?").run(
-    status,
-    decidedBy,
-    Date.now(),
-    id,
+export function decideInviteRequest(id: number, status: InviteRequestStatus, decidedBy: string): number {
+  const result = db
+    .query("UPDATE invite_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'")
+    .run(status, decidedBy, Date.now(), id);
+  return Number(result.changes);
+}
+
+export function hasPendingInviteRequest(meetupId: number, targetId: string): boolean {
+  return Boolean(
+    db
+      .query("SELECT 1 FROM invite_requests WHERE meetup_id = ? AND target_id = ? AND status = 'PENDING'")
+      .get(meetupId, targetId),
   );
 }
 

@@ -1,6 +1,7 @@
 import {
   ChannelType,
   MessageFlags,
+  OverwriteType,
   PermissionFlagsBits,
   type CategoryChannel,
   type Client,
@@ -57,29 +58,6 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.forumName,
       type: ChannelType.GuildForum,
       parent: category.id,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads],
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.ReadMessageHistory],
-        },
-        ...(guild.members.me
-          ? [
-              {
-                id: guild.members.me.id,
-                allow: [
-                  PermissionFlagsBits.ViewChannel,
-                  PermissionFlagsBits.SendMessages,
-                  PermissionFlagsBits.SendMessagesInThreads,
-                  PermissionFlagsBits.CreatePublicThreads,
-                  PermissionFlagsBits.CreatePrivateThreads,
-                  PermissionFlagsBits.ReadMessageHistory,
-                  PermissionFlagsBits.ManageThreads,
-                ],
-              },
-            ]
-          : []),
-      ],
     });
   }
 
@@ -94,33 +72,65 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.inviteName,
       type: ChannelType.GuildText,
       parent: category.id,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-          deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePrivateThreads],
-        },
-        ...(guild.members.me
-          ? [
-              {
-                id: guild.members.me.id,
-                allow: [
-                  PermissionFlagsBits.ViewChannel,
-                  PermissionFlagsBits.SendMessages,
-                  PermissionFlagsBits.CreatePrivateThreads,
-                  PermissionFlagsBits.ReadMessageHistory,
-                  PermissionFlagsBits.ManageThreads,
-                ],
-              },
-            ]
-          : []),
-      ],
     });
   }
 
   if (forum.position !== 0) await forum.setPosition(0).catch(() => undefined);
   if (inviteChannel.position !== 1) await inviteChannel.setPosition(1).catch(() => undefined);
+  await applyLayoutPermissions(guild, forum, inviteChannel);
   return { category, forum, inviteChannel };
+}
+
+/** Re-applies the fixed forum/invite rules even when the channels already existed. */
+async function applyLayoutPermissions(
+  guild: Guild,
+  forum: ForumChannel,
+  inviteChannel: TextChannel,
+): Promise<void> {
+  const everyone = guild.roles.everyone;
+  await forum.permissionOverwrites
+    .edit(everyone, {
+      ViewChannel: true,
+      SendMessages: false,
+      SendMessagesInThreads: true,
+      ReadMessageHistory: true,
+      CreatePublicThreads: false,
+      CreatePrivateThreads: false,
+    })
+    .catch(() => undefined);
+  await inviteChannel.permissionOverwrites
+    .edit(everyone, {
+      ViewChannel: true,
+      SendMessages: false,
+      CreatePrivateThreads: false,
+      SendMessagesInThreads: true,
+      ReadMessageHistory: true,
+    })
+    .catch(() => undefined);
+
+  const me = guild.members.me;
+  if (!me) return;
+  await forum.permissionOverwrites
+    .edit(me, {
+      ViewChannel: true,
+      SendMessages: true,
+      SendMessagesInThreads: true,
+      ReadMessageHistory: true,
+      CreatePublicThreads: true,
+      CreatePrivateThreads: true,
+      ManageThreads: true,
+    })
+    .catch(() => undefined);
+  await inviteChannel.permissionOverwrites
+    .edit(me, {
+      ViewChannel: true,
+      SendMessages: true,
+      SendMessagesInThreads: true,
+      CreatePrivateThreads: true,
+      ReadMessageHistory: true,
+      ManageThreads: true,
+    })
+    .catch(() => undefined);
 }
 
 function childrenOf(guild: Guild, categoryId: string): GuildChannel[] {
@@ -220,7 +230,18 @@ export async function createMeetupChannel(guild: Guild, meetup: Meetup): Promise
     permissionOverwrites,
   });
   updateMeetup(meetup.id, { channelId: channel.id });
+  await moveArchivedToBottom(guild, layout.category.id);
   return channel;
+}
+
+/** Keeps archived channels at the bottom of their category after a new channel is appended. */
+async function moveArchivedToBottom(guild: Guild, categoryId: string): Promise<void> {
+  const archived = childrenOf(guild, categoryId)
+    .filter((channel) => isArchivedChannel(channel.name))
+    .sort((a, b) => a.position - b.position);
+  for (const channel of archived) {
+    await channel.setPosition(9999).catch(() => undefined);
+  }
 }
 
 function channelSlug(meetup: Meetup): string {
@@ -249,30 +270,37 @@ export async function syncMeetupAccess(guild: Guild, meetup: Meetup): Promise<vo
   if (botId) allowed.add(botId);
 
   await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false });
+  // ManageChannels is granted by the host only; cohosts get it from the guild role, not this channel.
   await channel.permissionOverwrites.edit(meetup.hostId, {
     ViewChannel: true,
     SendMessages: true,
     ReadMessageHistory: true,
-    ManageChannels: meetup.state === "ACTIVE",
+    ManageChannels: meetup.state === "ACTIVE" ? true : null,
   });
   for (const cohostId of listCohosts(meetup.id)) {
-    await channel.permissionOverwrites.edit(cohostId, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-      ManageChannels: meetup.state === "ACTIVE",
-    });
+    await channel.permissionOverwrites
+      .edit(cohostId, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true,
+        ManageChannels: null,
+      })
+      .catch(() => undefined);
   }
   for (const userId of allowed) {
     if (userId === meetup.hostId || userId === botId) continue;
-    await channel.permissionOverwrites.edit(userId, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-    });
+    await channel.permissionOverwrites
+      .edit(userId, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true,
+      })
+      .catch(() => undefined);
   }
-  for (const [id] of channel.permissionOverwrites.cache) {
+  // Preserve role overwrites added by server admins; only stale member overwrites are revoked.
+  for (const [id, overwrite] of channel.permissionOverwrites.cache) {
     if (allowed.has(id) || id === guild.roles.everyone.id) continue;
+    if (overwrite.type !== OverwriteType.Member) continue;
     await channel.permissionOverwrites.delete(id).catch(() => undefined);
   }
 }
@@ -305,7 +333,7 @@ export async function archiveChannel(guild: Guild, meetup: Meetup): Promise<void
       ViewChannel: true,
       SendMessages: true,
       ReadMessageHistory: true,
-      ManageChannels: false,
+      ManageChannels: null,
     })
     .catch(() => undefined);
   await channel.setPosition(9999).catch(() => undefined);
@@ -335,9 +363,10 @@ export async function createInviteThread(
   targetId: string,
   label: string,
 ): Promise<ThreadChannel | null> {
+  let thread: ThreadChannel | null = null;
   try {
     const layout = await ensureLayout(guild);
-    const thread = await layout.inviteChannel.threads.create({
+    thread = await layout.inviteChannel.threads.create({
       name: label.slice(0, 100),
       type: ChannelType.PrivateThread,
       invitable: false,
@@ -347,6 +376,7 @@ export async function createInviteThread(
     await thread.members.add(targetId);
     return thread;
   } catch {
+    if (thread) await thread.delete().catch(() => undefined);
     return null;
   }
 }
@@ -362,10 +392,21 @@ export async function replyEphemeral(
 ): Promise<void> {
   const payload: InteractionReplyOptions = typeof options === "string" ? { content: options } : options;
   payload.flags = MessageFlags.Ephemeral;
-  if (interaction.deferred || interaction.replied) {
+  if (interaction.deferred && !interaction.replied) {
+    // Resolve the deferred reply instead of sending a second ephemeral message.
+    const { flags: _flags, ...rest } = payload;
+    await interaction.editReply(rest);
+  } else if (interaction.replied) {
     await interaction.followUp(payload);
   } else {
     await interaction.reply(payload);
+  }
+}
+
+/** Acknowledges a slash command immediately so slow REST work cannot miss the 3s window. */
+export async function deferEphemeral(interaction: RepliableInteraction): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
 }
 

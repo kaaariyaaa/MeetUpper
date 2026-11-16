@@ -13,6 +13,7 @@ import {
   approveParticipant,
   canManage,
   countApproved,
+  deleteParticipant,
   getMeetup,
   getParticipant,
   hasVoted,
@@ -22,6 +23,7 @@ import {
   setParticipantState,
 } from "../core/meetup.ts";
 import {
+  deferEphemeral,
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
@@ -133,15 +135,23 @@ function applicationPanelContent(meetup: Meetup, applicantId: string): string {
   return `${audience.join(" ")} 参加申請が届きました。\n申請者: <@${applicantId}>`;
 }
 
-function resultEmbed(meetup: Meetup, applicantId: string, approved: boolean, actorId: string): EmbedBuilder {
+function resultEmbed(
+  meetup: Meetup,
+  applicantId: string,
+  approved: boolean,
+  actorId: string,
+  warning?: string,
+): EmbedBuilder {
+  const lines = [
+    approved
+      ? `<@${applicantId}> の参加が確定しました。`
+      : `<@${applicantId}> の参加申請を却下しました。`,
+  ];
+  if (warning) lines.push("", warning);
   return new EmbedBuilder()
     .setTitle(approved ? "参加確定" : "参加申請を却下")
     .setColor(approved ? 0x2ecc71 : 0xe74c3c)
-    .setDescription(
-      approved
-        ? `<@${applicantId}> の参加が確定しました。`
-        : `<@${applicantId}> の参加申請を却下しました。`,
-    )
+    .setDescription(lines.join("\n"))
     .addFields(
       { name: "オフ会", value: meetup.name, inline: true },
       { name: "対応者", value: `<@${actorId}>`, inline: true },
@@ -156,6 +166,7 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
       await replyEphemeral(interaction, "サーバー内でのみ使用できます");
       return;
     }
+    await deferEphemeral(interaction);
     const meetup = getMeetup(meetupId);
     if (!meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
       await replyEphemeral(interaction, NOT_RECRUITING);
@@ -167,15 +178,27 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
       return;
     }
 
+    const previous = getParticipant(meetup.id, interaction.user.id);
     setParticipantState(meetup.id, interaction.user.id, "APPLIED");
     const participant = getParticipant(meetup.id, interaction.user.id);
     const appliedAt = participant?.appliedAt ?? Date.now();
 
-    await sendToMeetupChannel(guild, meetup, {
+    const sent = await sendToMeetupChannel(guild, meetup, {
       content: applicationPanelContent(meetup, interaction.user.id),
       embeds: [applicationEmbed(meetup, interaction.user.id, countApproved(meetup.id), 0, appliedAt)],
       components: applicationComponents(meetup, interaction.user.id),
     });
+
+    if (!sent) {
+      // No panel means no way to approve, so do not leave an unreachable application.
+      if (previous) setParticipantState(meetup.id, interaction.user.id, previous.state);
+      else deleteParticipant(meetup.id, interaction.user.id);
+      await replyEphemeral(
+        interaction,
+        "参加申請を受け付けましたが、主催者チャンネルへ通知できませんでした。主催者へ直接連絡してください。",
+      );
+      return;
+    }
 
     await replyEphemeral(interaction, "参加申請を送りました");
   } catch (error) {
@@ -233,16 +256,24 @@ async function confirmApproval(
   approvedBy: string,
 ): Promise<void> {
   approveParticipant(meetup, applicantId, approvedBy);
+  const warning =
+    countApproved(meetup.id) > meetup.capacity
+      ? "⚠️ 定員を超えて承認しました。参加希望者へ状況を共有してください。"
+      : undefined;
   await interaction.update({
-    embeds: [resultEmbed(meetup, applicantId, true, interaction.user.id)],
+    embeds: [resultEmbed(meetup, applicantId, true, interaction.user.id, warning)],
     components: [],
   });
   await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) =>
     console.error("参加者の権限同期に失敗しました", error),
   );
-  await tryDM(interaction.client, applicantId, `参加が確定しました: ${meetup.name}`);
+  await tryDM(
+    interaction.client,
+    applicantId,
+    `参加が確定しました: ${meetup.name}${warning ? `\n${warning}` : ""}`,
+  );
   await sendToMeetupChannel(guild, meetup, {
-    content: `<@${applicantId}> の参加が確定しました。`,
+    content: `<@${applicantId}> の参加が確定しました。${warning ? `\n${warning}` : ""}`,
   });
 }
 

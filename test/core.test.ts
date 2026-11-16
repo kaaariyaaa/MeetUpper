@@ -55,11 +55,16 @@ test("participant states, votes and reminders", () => {
   expect(addVote(meetup.id, "u2", "u3")).toBe(2);
   expect(countVotes(meetup.id, "u2")).toBe(2);
 
-  scheduleReminders(meetup.id, meetup.startAt, Date.now());
-  expect(dueReminders(Date.now()).length).toBe(0);
-  expect(dueReminders(meetup.startAt).length).toBe(3);
+  const remindersDueAtStart = () => dueReminders(meetup.startAt).filter((r) => r.meetupId === meetup.id);
+  const remindersDueNow = () => dueReminders(Date.now()).filter((r) => r.meetupId === meetup.id);
+  expect(remindersDueNow().length).toBe(0);
+  expect(remindersDueAtStart().length).toBe(3);
   markReminderSent(meetup.id, "1d");
-  expect(dueReminders(meetup.startAt).length).toBe(2);
+  expect(remindersDueAtStart().length).toBe(2);
+
+  // A new application starts with zero votes.
+  setParticipantState(meetup.id, "u2", "APPLIED");
+  expect(countVotes(meetup.id, "u2")).toBe(0);
 
   const updated = updateMeetup(meetup.id, {
     capacity: 5,
@@ -72,5 +77,5 @@ test("participant states, votes and reminders", () => {
 
   archiveMeetup(meetup);
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
-  expect(dueReminders(meetup.startAt).length).toBe(0);
+  expect(remindersDueAtStart().length).toBe(0);
 });
