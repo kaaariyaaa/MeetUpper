@@ -69,7 +69,8 @@ async function handleChannelDelete(deleted: { id: string; name: string }, guild:
   await channel.send({ content: `<@${meetup.hostId}>`, ...payload }).catch((error) => {
     console.error(`復旧通知の送信に失敗しました: meetup=${meetup.id}`, error);
   });
-  await tryDM(guild.client, meetup.hostId, payload);
+  // DM copy is informational only: buttons must act in the recreated channel.
+  await tryDM(guild.client, meetup.hostId, { embeds: payload.embeds });
 }
 
 setup((client) => {

@@ -55,6 +55,10 @@ export function createMeetup(input: CreateMeetupInput): Meetup {
   return toMeetup(row);
 }
 
+export function deleteMeetup(id: number): void {
+  db.query("DELETE FROM meetups WHERE id = ?").run(id);
+}
+
 export function getMeetup(id: number): Meetup | null {
   const row = db.query("SELECT * FROM meetups WHERE id = ?").get(id) as
     | Parameters<typeof toMeetup>[0]
@@ -84,6 +88,8 @@ export function updateMeetup(
       Meetup,
       | "name"
       | "description"
+      | "capacity"
+      | "startAt"
       | "hostId"
       | "meetingAt"
       | "meetingPlace"
@@ -97,6 +103,8 @@ export function updateMeetup(
   const mapping: Record<string, string> = {
     name: "name",
     description: "description",
+    capacity: "capacity",
+    startAt: "start_at",
     hostId: "host_id",
     meetingAt: "meeting_at",
     meetingPlace: "meeting_place",

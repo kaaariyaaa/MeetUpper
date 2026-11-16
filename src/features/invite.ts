@@ -38,9 +38,9 @@ type InviteDelivery = "DM" | "THREAD" | "FAILED";
 export function inviteEmbed(meetup: Meetup, inviterId: string): EmbedBuilder {
   const embed = meetupEmbed(meetup);
   const description = embed.data.description ?? "";
-  return embed.setDescription(
-    `${description}\n\n<@${inviterId}> さんから招待されています。`.slice(0, 4000),
-  );
+  return embed
+    .setDescription(`${description}\n\n<@${inviterId}> さんから招待されています。`.slice(0, 4000))
+    .setFooter({ text: `オフ会ID: ${meetup.id}` });
 }
 
 function inviteComponents(meetup: Meetup): ActionRowBuilder<ButtonBuilder>[] {
@@ -291,7 +291,9 @@ button(/^invite:decline:(\d+)$/, async (interaction, args) => {
     }
 
     setParticipantState(meetup.id, interaction.user.id, "DECLINED");
-    await interaction.update({ content: "招待を辞退しました", embeds: [], components: [] });
+    const reapply = `招待を辞退しました。後から参加申請する場合は /meetup apply meetup:${meetup.id} を実行してください。`;
+    await interaction.update({ content: reapply, embeds: [], components: [] });
+    if (!interaction.guild) await tryDM(interaction.client, interaction.user.id, reapply);
     await deleteThread(privateThreadOf(interaction));
   } catch (error) {
     await replyError(interaction, error);

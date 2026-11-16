@@ -63,6 +63,22 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
           deny: [PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads],
           allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.ReadMessageHistory],
         },
+        ...(guild.members.me
+          ? [
+              {
+                id: guild.members.me.id,
+                allow: [
+                  PermissionFlagsBits.ViewChannel,
+                  PermissionFlagsBits.SendMessages,
+                  PermissionFlagsBits.SendMessagesInThreads,
+                  PermissionFlagsBits.CreatePublicThreads,
+                  PermissionFlagsBits.CreatePrivateThreads,
+                  PermissionFlagsBits.ReadMessageHistory,
+                  PermissionFlagsBits.ManageThreads,
+                ],
+              },
+            ]
+          : []),
       ],
     });
   }
@@ -84,6 +100,20 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
           allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
           deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePrivateThreads],
         },
+        ...(guild.members.me
+          ? [
+              {
+                id: guild.members.me.id,
+                allow: [
+                  PermissionFlagsBits.ViewChannel,
+                  PermissionFlagsBits.SendMessages,
+                  PermissionFlagsBits.CreatePrivateThreads,
+                  PermissionFlagsBits.ReadMessageHistory,
+                  PermissionFlagsBits.ManageThreads,
+                ],
+              },
+            ]
+          : []),
       ],
     });
   }

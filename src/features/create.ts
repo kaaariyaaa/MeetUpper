@@ -22,6 +22,7 @@ import {
   canManage,
   countApproved,
   createMeetup,
+  deleteMeetup,
   getMeetup,
   getParticipant,
   listMeetups,
@@ -121,7 +122,11 @@ subcommand(
       }
 
       const mode = interaction.options.getString("mode", true) as MeetupMode;
-      const approvalMode = (interaction.options.getString("approval") ?? "HOST") as ApprovalMode;
+      // Private meetups always use host approval; voting is a Public-only mechanism.
+      const approvalMode: ApprovalMode =
+        mode === "PRIVATE"
+          ? "HOST"
+          : ((interaction.options.getString("approval") ?? "HOST") as ApprovalMode);
       const requiredVotes = interaction.options.getInteger("required-votes") ?? 1;
       if (approvalMode === "VOTE" && requiredVotes < 1) {
         await replyEphemeral(interaction, "参加者投票の必要票数は1以上で指定してください。");
@@ -155,24 +160,24 @@ subcommand(
         }
       }
 
-      let channel: TextChannel | null = null;
+      let channel: TextChannel;
       try {
         channel = await createMeetupChannel(guild, meetup);
       } catch (error) {
         console.error("オフ会専用チャンネルの作成に失敗しました", error);
+        deleteMeetup(meetup.id);
+        await replyEphemeral(
+          interaction,
+          "専用チャンネルを作成できなかったため、オフ会の作成を取り消しました。" +
+            "チャンネル数やBotの権限を確認してください。",
+        );
+        return;
       }
 
-      if (channel) {
-        await replyEphemeral(
-          interaction,
-          `オフ会を作成しました。\n専用チャンネル: <#${channel.id}>\nオフ会ID: ${meetup.id}`,
-        );
-      } else {
-        await replyEphemeral(
-          interaction,
-          `オフ会は作成されましたが、専用チャンネルの作成に失敗しました。\nオフ会ID: ${meetup.id}`,
-        );
-      }
+      await replyEphemeral(
+        interaction,
+        `オフ会を作成しました。\n専用チャンネル: <#${channel.id}>\nオフ会ID: ${meetup.id}`,
+      );
 
       if (mode !== "PUBLIC") return;
 
@@ -213,7 +218,13 @@ subcommand(
       const guild = await requireGuild(interaction);
       if (!guild) return;
 
-      const meetups = listMeetups(guild.id);
+      const userId = interaction.user.id;
+      const meetups = listMeetups(guild.id).filter((meetup) => {
+        if (meetup.mode === "PUBLIC") return true;
+        if (canManage(meetup, userId)) return true;
+        const state = getParticipant(meetup.id, userId)?.state;
+        return state !== undefined && state !== "REJECTED";
+      });
       if (meetups.length === 0) {
         await replyEphemeral(interaction, "ACTIVEなオフ会はありません");
         return;

@@ -14,12 +14,15 @@ import {
   archiveMeetup,
   canManage,
   cancelMeetup,
+  countApproved,
+  deleteReminders,
   getMeetup,
   getParticipant,
   isHost,
   listCohosts,
   listParticipants,
   removeCohost,
+  scheduleReminders,
   setParticipantState,
   updateMeetup,
 } from "../core/meetup.ts";
@@ -32,7 +35,7 @@ import {
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
-import { cancelEvent } from "../core/events.ts";
+import { cancelEvent, updateEvent } from "../core/events.ts";
 import { parseDateTime } from "../core/time.ts";
 import { dateTimeHint, meetupEmbed, participantsSummary } from "../core/views.ts";
 import type { Meetup } from "../core/types.ts";
@@ -302,6 +305,73 @@ subcommand(
           "サーバー全体の管理者権限を持つ場合は引き続き管理できます。",
       );
       await replyEphemeral(interaction, `主催者を <@${target.id}> に変更しました`);
+    });
+  },
+);
+
+
+/* --- edit --- */
+
+subcommand(
+  new SlashCommandSubcommandBuilder()
+    .setName("edit")
+    .setDescription("オフ会の基本情報を編集します")
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
+    )
+    .addStringOption((option) =>
+      option.setName("name").setDescription("新しいオフ会名").setMaxLength(100),
+    )
+    .addStringOption((option) => option.setName("description").setDescription("新しい説明"))
+    .addIntegerOption((option) =>
+      option.setName("capacity").setDescription("新しい定員").setMinValue(1).setMaxValue(1000),
+    )
+    .addStringOption((option) =>
+      option.setName("start").setDescription("新しい開催日時 (YYYY-MM-DD HH:mm)"),
+    ),
+  async (interaction) => {
+    await runCommand(interaction, async (guild) => {
+      const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      requireManage(meetup, interaction.user.id);
+      requireActive(meetup);
+
+      const name = interaction.options.getString("name")?.trim();
+      const description = interaction.options.getString("description")?.trim();
+      const capacity = interaction.options.getInteger("capacity");
+      const startInput = interaction.options.getString("start")?.trim();
+      if (!name && description === undefined && capacity === null && !startInput) {
+        throw new Error("変更する項目を1つ以上指定してください。");
+      }
+
+      const fields: {
+        name?: string;
+        description?: string;
+        capacity?: number;
+        startAt?: number;
+      } = {};
+      if (name) fields.name = name;
+      if (description !== undefined) fields.description = description;
+      if (capacity !== null) fields.capacity = capacity;
+      if (startInput) {
+        const startAt = parseDateTime(startInput);
+        if (startAt === null) throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
+        fields.startAt = startAt;
+      }
+
+      updateMeetup(meetup.id, fields);
+      const updated = getMeetup(meetup.id)!;
+      if (fields.startAt !== undefined) {
+        deleteReminders(updated.id);
+        scheduleReminders(updated.id, updated.startAt);
+      }
+      if (updated.mode === "PUBLIC" && updated.eventId) await updateEvent(guild, updated);
+
+      const warnings: string[] = [];
+      if (capacity !== null && countApproved(updated.id) > capacity) {
+        warnings.push("確定済みの参加者数が新しい定員を超えています");
+      }
+      await notifyChannel(guild, updated.id, "オフ会の基本情報が更新されました。");
+      await replyEphemeral(interaction, ["オフ会情報を更新しました", ...warnings].join("\n"));
     });
   },
 );

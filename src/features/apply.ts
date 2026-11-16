@@ -157,7 +157,7 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
       return;
     }
     const meetup = getMeetup(meetupId);
-    if (!meetup || meetup.state !== "ACTIVE") {
+    if (!meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
       await replyEphemeral(interaction, NOT_RECRUITING);
       return;
     }
@@ -193,7 +193,7 @@ async function loadActiveMeetup(
     return null;
   }
   const meetup = getMeetup(meetupId);
-  if (!meetup || meetup.state !== "ACTIVE") {
+  if (!meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
     await replyEphemeral(interaction, NOT_RECRUITING);
     return null;
   }

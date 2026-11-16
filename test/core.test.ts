@@ -16,6 +16,7 @@ const {
   dueReminders,
   markReminderSent,
   archiveMeetup,
+  updateMeetup,
 } = await import("../src/core/meetup.ts");
 const { parseDateTime } = await import("../src/core/time.ts");
 
@@ -59,6 +60,15 @@ test("participant states, votes and reminders", () => {
   expect(dueReminders(meetup.startAt).length).toBe(3);
   markReminderSent(meetup.id, "1d");
   expect(dueReminders(meetup.startAt).length).toBe(2);
+
+  const updated = updateMeetup(meetup.id, {
+    capacity: 5,
+    startAt: meetup.startAt + 60 * 60 * 1000,
+    name: "東京オフ会（変更後）",
+  });
+  expect(updated?.capacity).toBe(5);
+  expect(updated?.name).toBe("東京オフ会（変更後）");
+  expect(updated?.startAt).toBe(meetup.startAt + 60 * 60 * 1000);
 
   archiveMeetup(meetup);
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");

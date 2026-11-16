@@ -10,7 +10,10 @@ const { getSubcommands } = await import("../src/core/registry.ts");
 
 test("create/list/show subcommands are registered", () => {
   const entries = getSubcommands();
-  expect(entries.map((entry) => entry.name)).toEqual(["create", "list", "show"]);
+  const names = entries.map((entry) => entry.name);
+  expect(names).toContain("create");
+  expect(names).toContain("list");
+  expect(names).toContain("show");
 
   const create = entries.find((entry) => entry.name === "create");
   const options = create?.builder.toJSON().options ?? [];

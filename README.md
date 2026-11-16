@@ -8,5 +8,3 @@ MeetUpper は、Discord サーバー内でオフ会を管理する Bot です。
 - オフ会ごとの専用チャンネルは非公開で、参加確定者だけが閲覧できる
 - Discord のスケジュールイベント連携、開催前リマインド、手動アーカイブに対応
 - 主催者・共同主催者・参加確定者で操作権限を分ける
-
-設計の全体像は [DESUGIN.md](DESUGIN.md) にあります。セットアップは [docs/SETUP.md](docs/SETUP.md)、コマンド一覧は [docs/COMMANDS.md](docs/COMMANDS.md)、動作確認は [docs/CHECKLIST.md](docs/CHECKLIST.md) を参照してください。
