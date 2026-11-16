@@ -1,0 +1,28 @@
+{
+  description = "MeetUpper - off-kai management Discord bot";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  outputs = { self, nixpkgs }:
+    let
+      systems = [ "x86_64-linux" "aarch64-darwin" "aarch64-linux" ];
+      forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+    in {
+      devShells = forEachSystem (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            bun
+            nodejs_22
+            git
+            gh
+            direnv
+          ];
+
+          shellHook = ''
+            export BUN_INSTALL_CACHE_DIR="$PWD/.bun/cache"
+            echo "MeetUpper dev shell: $(bun --version)"
+          '';
+        };
+      });
+    };
+}

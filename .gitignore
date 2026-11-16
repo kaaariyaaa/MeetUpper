@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.bun/
+data/
+.env
+.env.*
+!.env.example
+.worktrees/
+.direnv/
+.result*

@@ -1,0 +1,66 @@
+import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+process.env.DB_PATH = join(tmpdir(), `meetupper-test-${process.pid}-${Date.now()}.db`);
+process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
+
+const {
+  createMeetup,
+  getMeetup,
+  setParticipantState,
+  countApproved,
+  addVote,
+  countVotes,
+  scheduleReminders,
+  dueReminders,
+  markReminderSent,
+  archiveMeetup,
+} = await import("../src/core/meetup.ts");
+const { parseDateTime } = await import("../src/core/time.ts");
+
+test("parseDateTime reads JST wall-clock time as UTC", () => {
+  expect(parseDateTime("2026-12-01 19:00")).toBe(Date.UTC(2026, 11, 1, 10, 0));
+  expect(parseDateTime("2026-12-01T10:00:00Z")).toBe(Date.UTC(2026, 11, 1, 10, 0));
+  expect(parseDateTime("2026-12-01")).toBe(Date.UTC(2026, 10, 30, 15, 0));
+  expect(parseDateTime("not a date")).toBeNull();
+});
+
+test("participant states, votes and reminders", () => {
+  const meetup = createMeetup({
+    guildId: "1",
+    hostId: "host",
+    name: "東京オフ会",
+    description: "test",
+    capacity: 3,
+    startAt: Date.now() + 48 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "VOTE",
+    requiredVotes: 2,
+    eventEnabled: false,
+  });
+
+  expect(getMeetup(meetup.id)?.name).toBe("東京オフ会");
+  expect(countApproved(meetup.id)).toBe(0);
+
+  setParticipantState(meetup.id, "u1", "APPROVED", { approvedBy: "host" });
+  setParticipantState(meetup.id, "u2", "APPLIED");
+  expect(countApproved(meetup.id)).toBe(1);
+
+  expect(addVote(meetup.id, "u2", "u1")).toBe(1);
+  expect(addVote(meetup.id, "u2", "u1")).toBe(1);
+  expect(addVote(meetup.id, "u2", "u3")).toBe(2);
+  expect(countVotes(meetup.id, "u2")).toBe(2);
+
+  scheduleReminders(meetup.id, meetup.startAt, Date.now());
+  expect(dueReminders(Date.now()).length).toBe(0);
+  expect(dueReminders(meetup.startAt).length).toBe(3);
+  markReminderSent(meetup.id, "1d");
+  expect(dueReminders(meetup.startAt).length).toBe(2);
+
+  archiveMeetup(meetup);
+  expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
+  expect(dueReminders(meetup.startAt).length).toBe(0);
+});
