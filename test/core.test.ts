@@ -62,8 +62,15 @@ test("participant states, votes and reminders", () => {
   markReminderSent(meetup.id, "1d");
   expect(remindersDueAtStart().length).toBe(2);
 
-  // A new application starts with zero votes.
+  // A re-application starts with zero votes, and a former participant loses their vote.
   setParticipantState(meetup.id, "u2", "APPLIED");
+  addVote(meetup.id, "u2", "u1");
+  expect(countVotes(meetup.id, "u2")).toBe(1);
+  setParticipantState(meetup.id, "u2", "DECLINED");
+  setParticipantState(meetup.id, "u2", "APPLIED");
+  expect(countVotes(meetup.id, "u2")).toBe(0);
+  addVote(meetup.id, "u2", "u1");
+  setParticipantState(meetup.id, "u1", "CANCELLED");
   expect(countVotes(meetup.id, "u2")).toBe(0);
 
   const updated = updateMeetup(meetup.id, {

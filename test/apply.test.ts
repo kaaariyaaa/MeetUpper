@@ -93,5 +93,6 @@ test("application panel exposes capacity, approval mode and buttons", () => {
   const voteRow = applicationComponents(voteMeetup, "u2")[0]?.toJSON();
   expect(voteRow?.components.map((component) => ("custom_id" in component ? component.custom_id : undefined))).toEqual([
     `apply:vote:${voteMeetup.id}:u2`,
+    `apply:reject:${voteMeetup.id}:u2`,
   ]);
 });

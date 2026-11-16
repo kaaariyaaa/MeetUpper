@@ -1,7 +1,5 @@
 export const config = {
   token: process.env.DISCORD_TOKEN ?? "",
-  applicationId: process.env.DISCORD_APPLICATION_ID ?? "",
-  guildId: process.env.DISCORD_GUILD_ID || undefined,
   timeZone: process.env.DEFAULT_TIMEZONE ?? "Asia/Tokyo",
   dbPath: process.env.DB_PATH ?? "data/meetupper.db",
   categoryName: "MeetUp",

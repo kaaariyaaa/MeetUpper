@@ -25,6 +25,7 @@ import {
   countApproved,
   createInviteRequest,
   decideInviteRequest,
+  deleteParticipant,
   getInviteRequest,
   getMeetup,
   getParticipant,
@@ -203,8 +204,14 @@ subcommand(
       }
 
       if (canManage(meetup, actorId)) {
+        const previous = getParticipant(meetup.id, target.id);
         setParticipantState(meetup.id, target.id, "INVITED", { invitedBy: actorId });
         const delivery = await deliverInvite(guild, meetup, target.id, actorId);
+        if (delivery === "FAILED") {
+          // A failed delivery must not lock the target into 招待中 forever.
+          if (previous) setParticipantState(meetup.id, target.id, previous.state);
+          else deleteParticipant(meetup.id, target.id);
+        }
         const detail =
           delivery === "DM"
             ? "招待DMを送信しました"
@@ -236,6 +243,7 @@ subcommand(
           components: requestComponents(request.id),
         });
         if (!sent) {
+          decideInviteRequest(request.id, "REJECTED", actorId);
           await replyEphemeral(
             interaction,
             "招待申請を専用チャンネルへ投稿できませんでした。主催者へ直接確認してください。",
@@ -374,10 +382,15 @@ button(/^invite:approve:(\d+)$/, async (interaction, args) => {
       });
       return;
     }
+    const previous = getParticipant(meetup.id, request.targetId);
     setParticipantState(meetup.id, request.targetId, "INVITED", {
       invitedBy: request.requesterId,
     });
     const delivery = await deliverInvite(guild, meetup, request.targetId, request.requesterId);
+    if (delivery === "FAILED") {
+      if (previous) setParticipantState(meetup.id, request.targetId, previous.state);
+      else deleteParticipant(meetup.id, request.targetId);
+    }
     await notifyRequester(
       interaction,
       guild,

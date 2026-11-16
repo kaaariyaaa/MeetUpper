@@ -260,7 +260,7 @@ subcommand(
       requireActive(meetup);
       const target = interaction.options.getUser("user", true);
       const action = interaction.options.getString("action", true);
-      if (!(await fetchMember(guild, target.id))) {
+      if (action === "add" && !(await fetchMember(guild, target.id))) {
         throw new Error("対象ユーザーがこのサーバーに参加していません。");
       }
 
@@ -475,6 +475,7 @@ button(/^manage:confirm-archive:(\d+)$/, async (interaction, args) => {
     await syncMeetupAccess(guild, updated).catch((error) =>
       console.error("アーカイブ後の権限同期に失敗しました", error),
     );
+    if (updated.eventId) await cancelEvent(guild, updated);
   });
 });
 
@@ -491,8 +492,10 @@ button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
     await cancelEvent(guild, updated);
     const message = `オフ会が中止されました: ${updated.name}`;
     await notifyChannel(guild, updated.id, message);
-    const approved = listParticipants(updated.id, ["APPROVED"]);
-    await Promise.all(approved.map((participant) => tryDM(interaction.client, participant.userId, message)));
+    const notifyTargets = listParticipants(updated.id, ["APPROVED", "APPLIED", "INVITED"]);
+    await Promise.all(
+      notifyTargets.map((participant) => tryDM(interaction.client, participant.userId, message)),
+    );
   });
 });
 

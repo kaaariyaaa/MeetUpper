@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { Client, Events, GatewayIntentBits, SlashCommandBuilder, type Guild } from "discord.js";
 import { config } from "./config.ts";
 import { ensureLayout, replyError } from "./core/discord.ts";
 import { findButton, findModal, getSubcommands, runSetups } from "./core/registry.ts";
@@ -20,25 +20,31 @@ const commandJson = meetupCommand.toJSON();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+async function registerGuildCommands(guild: Guild): Promise<void> {
+  await guild.commands.set([commandJson]);
+  console.log(`スラッシュコマンド /meetup を登録しました: ${guild.name} (${guild.id})`);
+}
+
 // Register listeners (channel-delete recovery, reminder timer) before the gateway connects.
 await runSetups(client);
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
-  try {
-    const rest = new REST().setToken(config.token);
-    const route = config.guildId
-      ? Routes.applicationGuildCommands(readyClient.user.id, config.guildId)
-      : Routes.applicationCommands(readyClient.user.id);
-    await rest.put(route, { body: [commandJson] });
-    console.log(`スラッシュコマンド /meetup を登録しました (${config.guildId ? "guild" : "global"})`);
-  } catch (error) {
-    console.error("スラッシュコマンドの登録に失敗しました", error);
-  }
-
+  // Remove global commands left by older versions; commands are registered per joined guild.
+  await readyClient.application?.commands.set([]).catch(() => undefined);
   for (const guild of readyClient.guilds.cache.values()) {
+    await registerGuildCommands(guild).catch((error) =>
+      console.error(`スラッシュコマンドの登録に失敗しました: ${guild.id}`, error),
+    );
     await ensureLayout(guild).catch((error) => console.error(`レイアウト初期化失敗: ${guild.id}`, error));
   }
+});
+
+client.on(Events.GuildCreate, async (guild) => {
+  await registerGuildCommands(guild).catch((error) =>
+    console.error(`スラッシュコマンドの登録に失敗しました: ${guild.id}`, error),
+  );
+  await ensureLayout(guild).catch((error) => console.error(`レイアウト初期化失敗: ${guild.id}`, error));
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

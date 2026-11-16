@@ -174,8 +174,6 @@ subcommand(
       let channel: TextChannel;
       try {
         channel = await createMeetupChannel(guild, meetup);
-        // Cohosts named at creation need their overwrites before any other action syncs them.
-        await syncMeetupAccess(guild, getMeetup(meetup.id)!);
       } catch (error) {
         console.error("オフ会専用チャンネルの作成に失敗しました", error);
         deleteMeetup(meetup.id);
@@ -187,44 +185,51 @@ subcommand(
         return;
       }
 
-      await replyEphemeral(
-        interaction,
-        `オフ会を作成しました。\n専用チャンネル: <#${channel.id}>\nオフ会ID: ${meetup.id}`,
-      );
+      const warnings: string[] = [];
+      // Cohosts named at creation need their overwrites before any other action syncs them.
+      await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) => {
+        console.error("共同主催者の権限設定に失敗しました", error);
+        warnings.push("共同主催者の権限設定に失敗しました。Botの権限を確認してください。");
+      });
 
-      if (mode !== "PUBLIC") return;
-
-      try {
-        const layout = await ensureLayout(guild);
-        const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`apply:start:${meetup.id}`)
-            .setLabel("参加申請")
-            .setStyle(ButtonStyle.Primary),
-        );
-        const thread = await layout.forum.threads.create({
-          name: meetup.name.slice(0, 100),
-          message: { embeds: [publicEmbed(meetup)], components: [applyRow] },
-        });
-        updateMeetup(meetup.id, { forumThreadId: thread.id });
-      } catch (error) {
-        console.error("募集フォーラムへの投稿に失敗しました", error);
-        await replyEphemeral(
-          interaction,
-          "オフ会は作成されましたが、募集フォーラムへの投稿に失敗しました。",
-        );
+      if (mode === "PUBLIC") {
+        try {
+          const layout = await ensureLayout(guild);
+          const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`apply:start:${meetup.id}`)
+              .setLabel("参加申請")
+              .setStyle(ButtonStyle.Primary),
+          );
+          const thread = await layout.forum.threads.create({
+            name: meetup.name.slice(0, 100),
+            message: { embeds: [publicEmbed(meetup)], components: [applyRow] },
+          });
+          updateMeetup(meetup.id, { forumThreadId: thread.id });
+        } catch (error) {
+          console.error("募集フォーラムへの投稿に失敗しました", error);
+          warnings.push("募集フォーラムへの投稿に失敗しました。");
+        }
       }
 
       if (eventEnabled) {
         const event = await syncEventCreation(guild, meetup);
         if (!event) {
-          await replyEphemeral(
-            interaction,
-            "オフ会は作成されましたが、Discordスケジュールイベントを作成できませんでした。" +
-              "Botに「イベントを作成」権限があるか確認してください。",
+          warnings.push(
+            "Discordスケジュールイベントを作成できませんでした。Botに「イベントを作成」権限があるか確認してください。",
           );
         }
       }
+
+      await replyEphemeral(
+        interaction,
+        [
+          "オフ会を作成しました。",
+          `専用チャンネル: <#${channel.id}>`,
+          `オフ会ID: ${meetup.id}`,
+          ...warnings,
+        ].join("\n"),
+      );
     } catch (error) {
       await replyError(interaction, error);
     }

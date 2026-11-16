@@ -51,8 +51,14 @@ export async function cancelEvent(guild: Guild, meetup: Meetup): Promise<void> {
       // Keep the event visible as cancelled instead of deleting the public record.
       await event.setStatus(GuildScheduledEventStatus.Canceled);
     }
-  } catch {
-    // event may already be gone
+  } catch (error) {
+    console.error("スケジュールイベントの中止に失敗しました", error);
+    try {
+      const event = await guild.scheduledEvents.fetch(meetup.eventId);
+      await event.delete();
+    } catch {
+      // event may already be gone
+    }
   }
 }
 

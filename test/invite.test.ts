@@ -5,7 +5,13 @@ import { join } from "node:path";
 process.env.DB_PATH = join(tmpdir(), `meetupper-invite-test-${process.pid}-${Date.now()}.db`);
 
 const { getSubcommands, findButton } = await import("../src/core/registry.ts");
-const { createMeetup } = await import("../src/core/meetup.ts");
+const {
+  createInviteRequest,
+  createMeetup,
+  decideInviteRequest,
+  getInviteRequest,
+  hasPendingInviteRequest,
+} = await import("../src/core/meetup.ts");
 const { inviteEmbed } = await import("../src/features/invite.ts");
 
 function inviteSubcommand() {
@@ -58,4 +64,28 @@ test("invite embed hides the meeting place and shows the inviter", () => {
   expect(json).not.toContain("集合場所");
   expect(json).toContain("<@inviter>");
   expect(json).toContain("招待されています");
+});
+
+test("invite request decisions are atomic and pending requests block duplicates", () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "招待申請テスト",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PRIVATE",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+
+  const request = createInviteRequest(meetup.id, "u1", "u2");
+  expect(hasPendingInviteRequest(meetup.id, "u2")).toBe(true);
+  expect(decideInviteRequest(request.id, "APPROVED", "host")).toBe(1);
+  expect(decideInviteRequest(request.id, "REJECTED", "host")).toBe(0);
+  expect(getInviteRequest(request.id)?.status).toBe("APPROVED");
+  expect(hasPendingInviteRequest(meetup.id, "u2")).toBe(false);
 });

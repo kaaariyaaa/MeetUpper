@@ -53,9 +53,8 @@ export function applicationDenial(meetup: Meetup, userId: string): string | null
   }
 
   if (meetup.mode === "PRIVATE") {
-    // INVITED already returned above, so only a declined invitation remains valid here.
-    const invited = participant?.state === "DECLINED";
-    if (!participant || !invited) return "招待されたユーザーのみ参加申請できます";
+    // Anyone who was ever invited (declined or cancelled later) may apply again.
+    if (participant?.invitedAt == null) return "招待されたユーザーのみ参加申請できます";
   }
   return null;
 }
@@ -111,6 +110,10 @@ export function applicationComponents(
         .setCustomId(`apply:vote:${meetup.id}:${applicantId}`)
         .setLabel("賛成票")
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`apply:reject:${meetup.id}:${applicantId}`)
+        .setLabel("却下")
+        .setStyle(ButtonStyle.Danger),
     );
   } else {
     row.addComponents(
@@ -195,7 +198,7 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
       else deleteParticipant(meetup.id, interaction.user.id);
       await replyEphemeral(
         interaction,
-        "参加申請を受け付けましたが、主催者チャンネルへ通知できませんでした。主催者へ直接連絡してください。",
+        "参加申請を登録できませんでした（主催者チャンネルへ通知できません）。時間をおいて再実行するか、主催者へ直接連絡してください。",
       );
       return;
     }

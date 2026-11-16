@@ -126,7 +126,7 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
     await sendToMeetupChannel(guild, cancelled, {
       content: `オフ会「${cancelled.name}」は中止されました。`,
     });
-    for (const participant of listParticipants(id, ["APPROVED"])) {
+    for (const participant of listParticipants(id, ["APPROVED", "APPLIED", "INVITED"])) {
       await tryDM(
         interaction.client,
         participant.userId,
