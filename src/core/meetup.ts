@@ -62,6 +62,13 @@ export function getMeetup(id: number): Meetup | null {
   return row ? toMeetup(row) : null;
 }
 
+export function getMeetupByChannelId(channelId: string): Meetup | null {
+  const row = db.query("SELECT * FROM meetups WHERE channel_id = ? AND state = 'ACTIVE'").get(channelId) as
+    | Parameters<typeof toMeetup>[0]
+    | null;
+  return row ? toMeetup(row) : null;
+}
+
 export function listMeetups(guildId: string, states: MeetupState[] = ["ACTIVE"]): Meetup[] {
   const placeholders = states.map(() => "?").join(", ");
   const rows = db
@@ -72,11 +79,25 @@ export function listMeetups(guildId: string, states: MeetupState[] = ["ACTIVE"])
 
 export function updateMeetup(
   id: number,
-  fields: Partial<Pick<Meetup, "name" | "description" | "meetingAt" | "meetingPlace" | "channelId" | "forumThreadId" | "eventId" | "state">>,
+  fields: Partial<
+    Pick<
+      Meetup,
+      | "name"
+      | "description"
+      | "hostId"
+      | "meetingAt"
+      | "meetingPlace"
+      | "channelId"
+      | "forumThreadId"
+      | "eventId"
+      | "state"
+    >
+  >,
 ): Meetup | null {
   const mapping: Record<string, string> = {
     name: "name",
     description: "description",
+    hostId: "host_id",
     meetingAt: "meeting_at",
     meetingPlace: "meeting_place",
     channelId: "channel_id",

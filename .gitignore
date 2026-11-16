@@ -8,3 +8,4 @@ data/
 .worktrees/
 .direnv/
 .result*
+.nix-cache/
