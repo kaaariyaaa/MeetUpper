@@ -8,7 +8,7 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 
 const { findButton, getSubcommands } = await import("../src/core/registry.ts");
-const { cancelMeetup, createMeetup, getMeetup, getParticipant, setParticipantState, updateMeetup } =
+const { addCohost, cancelMeetup, createMeetup, getMeetup, getParticipant, setParticipantState, updateMeetup } =
   await import("../src/core/meetup.ts");
 const { meetupFromChannel } = await import("../src/core/discord.ts");
 await import("../src/features/manage.ts");
@@ -45,13 +45,13 @@ function makeMeetup(channelId: string) {
   updateMeetup(meetup.id, { channelId });
 }
 
-function fakeInteraction(channelId: string | null, meetupId: number | null) {
+function fakeInteraction(channelId: string | null, meetupId: number | null, userId = "host") {
   const calls: unknown[] = [];
   const interaction = {
     guild: { id: "g1" },
     channel: null,
     channelId,
-    user: { id: "host" },
+    user: { id: userId },
     deferred: false,
     replied: false,
     options: { getInteger: () => meetupId },
@@ -211,4 +211,31 @@ test("cancelled meetups can still be archived", async () => {
 
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
   expect(JSON.stringify(updated)).toContain("アーカイブしました");
+});
+
+test("cohosts can cancel a meetup, others cannot", async () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "共同主催者の中止",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "DIRECT",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  addCohost(meetup.id, "co");
+
+  const cancel = getSubcommands().find((entry) => entry.name === "cancel")!;
+  const cohost = fakeInteraction(null, meetup.id, "co");
+  await cancel.execute(cohost.interaction as never);
+  expect(JSON.stringify(cohost.calls)).toContain("manage:confirm-cancel");
+
+  const stranger = fakeInteraction(null, meetup.id, "stranger");
+  await cancel.execute(stranger.interaction as never);
+  expect(JSON.stringify(stranger.calls)).toContain("権限がありません");
 });

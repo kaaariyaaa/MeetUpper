@@ -520,7 +520,7 @@ subcommand(
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
       const meetup = resolveTargetMeetup(guild, interaction);
-      requireHost(meetup, interaction.user.id);
+      requireManage(meetup, interaction.user.id);
       requireActive(meetup);
 
       const embed = new EmbedBuilder()
@@ -560,7 +560,7 @@ button(/^manage:confirm-archive:(\d+)$/, async (interaction, args) => {
 button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
   await runButton(interaction, async (guild) => {
     const meetup = resolveMeetup(guild, Number(args[0]));
-    requireHost(meetup, interaction.user.id);
+    requireManage(meetup, interaction.user.id);
     requireActive(meetup);
 
     cancelMeetup(meetup);
