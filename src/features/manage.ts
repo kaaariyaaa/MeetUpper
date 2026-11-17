@@ -215,6 +215,46 @@ subcommand(
   },
 );
 
+/* --- kick --- */
+
+subcommand(
+  new SlashCommandSubcommandBuilder()
+    .setName("kick")
+    .setDescription("参加確定者をオフ会から退出させます")
+    .addUserOption((option) =>
+      option.setName("user").setDescription("退出させる参加者").setRequired(true),
+    )
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+    ),
+  async (interaction) => {
+    await runCommand(interaction, async (guild) => {
+      const meetup = resolveTargetMeetup(guild, interaction);
+      requireManage(meetup, interaction.user.id);
+      requireActive(meetup);
+
+      const target = interaction.options.getUser("user", true);
+      if (target.id === meetup.hostId) throw new Error("主催者は退出させられません。");
+      if (listCohosts(meetup.id).includes(target.id)) {
+        throw new Error("共同主催者は退出させられません。先に共同主催者から外してください。");
+      }
+      if (getParticipant(meetup.id, target.id)?.state !== "APPROVED") {
+        throw new Error("参加確定している参加者のみ退出させられます。");
+      }
+
+      setParticipantState(meetup.id, target.id, "KICKED");
+      await revokeChannelAccess(guild, meetup, target.id);
+      await notifyChannel(
+        guild,
+        meetup.id,
+        `<@${target.id}> が主催者によりオフ会から退出させられました。`,
+      );
+      await tryDM(interaction.client, target.id, `オフ会「${meetup.name}」から退出となりました。`);
+      await replyEphemeral(interaction, `<@${target.id}> を退出させました。`);
+    });
+  },
+);
+
 /* --- members --- */
 
 subcommand(

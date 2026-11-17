@@ -8,7 +8,8 @@ export type ParticipantState =
   | "APPROVED"
   | "DECLINED"
   | "REJECTED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "KICKED";
 
 export interface Meetup {
   id: number;

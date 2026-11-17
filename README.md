@@ -83,6 +83,7 @@ Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は 
 | `/meetup show` | オフ会の詳細を確認する |
 | `/meetup apply` | オフ会への参加を申請する |
 | `/meetup invite` | メンバーを招待する |
+| `/meetup kick` | 参加確定者をオフ会から退出させる |
 | `/meetup edit` | オフ会名・説明・定員・開催日時を変更する |
 | `/meetup info` | 集合時間・集合場所を変更する |
 | `/meetup remind` | 参加確定者へリマインドを送る |

@@ -22,6 +22,7 @@ test("all feature modules register their subcommands", () => {
     "info",
     "init",
     "invite",
+    "kick",
     "leave",
     "list",
     "members",

@@ -64,6 +64,7 @@ export function participantsSummary(meetupId: number): string {
     DECLINED: [],
     REJECTED: [],
     CANCELLED: [],
+    KICKED: [],
   };
   for (const participant of listParticipants(meetupId)) groups[participant.state]?.push(participant);
   const lines: string[] = [];

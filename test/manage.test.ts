@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ChannelType } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,13 +8,15 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 
 const { findButton, getSubcommands } = await import("../src/core/registry.ts");
-const { createMeetup, updateMeetup } = await import("../src/core/meetup.ts");
+const { createMeetup, getParticipant, setParticipantState, updateMeetup } = await import(
+  "../src/core/meetup.ts"
+);
 const { meetupFromChannel } = await import("../src/core/discord.ts");
 await import("../src/features/manage.ts");
 
 test("manage registers its subcommands", () => {
   const names = getSubcommands().map((entry) => entry.name);
-  for (const name of ["info", "leave", "members", "cohost", "host", "archive", "cancel"]) {
+  for (const name of ["info", "leave", "kick", "members", "cohost", "host", "archive", "cancel"]) {
     expect(names).toContain(name);
   }
 });
@@ -109,4 +112,68 @@ test("meetupFromChannel resolves the dedicated channel and the recruitment threa
   ).toBe(meetup.id);
   expect(meetupFromChannel({ id: "unknown" })).toBeNull();
   expect(meetupFromChannel(null)).toBeNull();
+});
+
+test("kick removes an approved participant, revokes access and announces it", async () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "キックテスト",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PRIVATE",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  updateMeetup(meetup.id, { channelId: "chan-kick" });
+  setParticipantState(meetup.id, "u-kick", "APPROVED");
+
+  const sent: unknown[] = [];
+  const deleted: string[] = [];
+  const channel = {
+    id: "chan-kick",
+    type: ChannelType.GuildText,
+    send: async (payload: unknown) => {
+      sent.push(payload);
+    },
+    permissionOverwrites: {
+      cache: new Map(),
+      edit: async () => undefined,
+      delete: async (id: string) => {
+        deleted.push(id);
+      },
+    },
+  };
+  const guild = {
+    id: "g1",
+    channels: { fetch: async (id: string) => (id === "chan-kick" ? channel : null) },
+  };
+  const interaction = {
+    guild,
+    user: { id: "host" },
+    client: {},
+    deferred: false,
+    replied: false,
+    options: {
+      getInteger: () => meetup.id,
+      getUser: () => ({ id: "u-kick" }),
+    },
+    reply: async () => undefined,
+    editReply: async () => undefined,
+    followUp: async () => undefined,
+    deferReply: async () => {
+      interaction.deferred = true;
+    },
+  };
+
+  const kick = getSubcommands().find((entry) => entry.name === "kick")!;
+  await kick.execute(interaction as never);
+
+  expect(getParticipant(meetup.id, "u-kick")?.state).toBe("KICKED");
+  expect(deleted).toContain("u-kick");
+  expect(JSON.stringify(sent)).toContain("退出させられました");
 });

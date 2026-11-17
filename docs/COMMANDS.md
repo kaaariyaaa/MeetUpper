@@ -13,6 +13,7 @@
 | `/meetup edit [meetup]` | 主催者・共同主催者 | オフ会名・説明・定員・開催日時を変更する（日時変更時はリマインドとスケジュールイベントも更新し、Public は募集投稿も更新） |
 | `/meetup info [meetup]` | 主催者・共同主催者 | 集合時間・集合場所を変更して参加者へ通知する |
 | `/meetup leave [meetup]` | 参加確定者 | 参加をキャンセルする（主催者は不可） |
+| `/meetup kick <user> [meetup]` | 主催者・共同主催者 | 参加確定者をオフ会から退出させる（専用チャンネルの権限を解除して参加者へ通知。退出させられた人は再申請できない） |
 | `/meetup members [meetup]` | 主催者・共同主催者 | 参加者と状態の一覧を表示する |
 | `/meetup cohost <user> <add\|remove> [meetup]` | 主催者 | 共同主催者を追加・削除する |
 | `/meetup host <user> [meetup]` | 主催者 | 主催者を変更する |

@@ -105,3 +105,9 @@ test("application panel exposes capacity, approval mode and buttons", () => {
     `apply:reject:${voteMeetup.id}:u2`,
   ]);
 });
+
+test("kicked participants cannot re-apply", () => {
+  const meetup = newMeetup();
+  setParticipantState(meetup.id, "kicked-user", "KICKED");
+  expect(applicationDenial(meetup, "kicked-user")).toBe("このオフ会からは退出させられています");
+});

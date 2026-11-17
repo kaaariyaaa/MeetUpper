@@ -53,6 +53,8 @@ export function applicationDenial(meetup: Meetup, userId: string): string | null
       return "招待DMから参加してください";
     case "REJECTED":
       return "参加申請は却下されています";
+    case "KICKED":
+      return "このオフ会からは退出させられています";
   }
 
   if (meetup.mode === "PRIVATE") {
