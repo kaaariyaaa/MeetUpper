@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { ChannelType, type Client } from "discord.js";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-reminder-test-${process.pid}-${Date.now()}.db`);
+const { db: testDb } = await import("../src/db.ts");
+testDb.exec("DELETE FROM meetups");
 process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 
 const { createMeetup, dueReminders, getMeetup, setMeetupState, setParticipantState, updateMeetup } =

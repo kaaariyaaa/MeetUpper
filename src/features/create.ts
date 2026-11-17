@@ -64,10 +64,10 @@ subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("create")
     .setDescription("オフ会を作成します")
+    // Discord requires every required option to precede all optional options.
     .addStringOption((option) =>
       option.setName("name").setDescription("オフ会名").setMaxLength(100).setRequired(true),
     )
-    .addStringOption((option) => option.setName("description").setDescription("説明"))
     .addIntegerOption((option) =>
       option.setName("capacity").setDescription("定員").setMinValue(1).setMaxValue(1000).setRequired(true),
     )
@@ -77,8 +77,6 @@ subcommand(
         .setDescription("開催日時 (例: 2026-12-01 19:00, Asia/Tokyo)")
         .setRequired(true),
     )
-    .addStringOption((option) => option.setName("meeting-time").setDescription("集合時間"))
-    .addStringOption((option) => option.setName("meeting-place").setDescription("集合場所"))
     .addStringOption((option) =>
       option
         .setName("mode")
@@ -86,6 +84,9 @@ subcommand(
         .setRequired(true)
         .addChoices({ name: "公開", value: "PUBLIC" }, { name: "招待制", value: "PRIVATE" }),
     )
+    .addStringOption((option) => option.setName("description").setDescription("説明"))
+    .addStringOption((option) => option.setName("meeting-time").setDescription("集合時間"))
+    .addStringOption((option) => option.setName("meeting-place").setDescription("集合場所"))
     .addStringOption((option) =>
       option
         .setName("approval")

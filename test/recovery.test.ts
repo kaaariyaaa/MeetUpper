@@ -4,6 +4,8 @@ import { join } from "node:path";
 import type { ButtonInteraction } from "discord.js";
 
 process.env.DB_PATH ??= join(tmpdir(), `meetupper-recovery-${process.pid}-${Date.now()}.db`);
+const { db: testDb } = await import("../src/db.ts");
+testDb.exec("DELETE FROM meetups");
 
 const { findButton } = await import("../src/core/registry.ts");
 await import("../src/features/recovery.ts");

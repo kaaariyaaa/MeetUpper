@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.DB_PATH ??= join(tmpdir(), `meetupper-sync-test-${process.pid}-${Date.now()}.db`);
+const { db: testDb } = await import("../src/db.ts");
+testDb.exec("DELETE FROM meetups");
 
 const { addCohost, archiveMeetup, createMeetup, getMeetup, setParticipantState, updateMeetup } =
   await import("../src/core/meetup.ts");

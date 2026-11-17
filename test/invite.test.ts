@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-invite-test-${process.pid}-${Date.now()}.db`);
+const { db: testDb } = await import("../src/db.ts");
+testDb.exec("DELETE FROM meetups");
 
 const { getSubcommands, findButton } = await import("../src/core/registry.ts");
 const {

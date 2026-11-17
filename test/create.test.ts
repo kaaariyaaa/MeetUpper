@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-create-test-${process.pid}-${Date.now()}.db`);
+const { db: testDb } = await import("../src/db.ts");
+testDb.exec("DELETE FROM meetups");
 process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 
 const { extractCohostIds } = await import("../src/features/create.ts");
@@ -19,12 +21,12 @@ test("create/list/show subcommands are registered", () => {
   const options = create?.builder.toJSON().options ?? [];
   expect(options.map((option) => option.name)).toEqual([
     "name",
-    "description",
     "capacity",
     "start",
+    "mode",
+    "description",
     "meeting-time",
     "meeting-place",
-    "mode",
     "approval",
     "required-votes",
     "cohosts",
@@ -36,6 +38,8 @@ test("create/list/show subcommands are registered", () => {
     "start",
     "mode",
   ]);
+  const firstOptional = options.findIndex((option) => !option.required);
+  expect(options.slice(firstOptional).every((option) => !option.required)).toBe(true);
 
   const show = entries.find((entry) => entry.name === "show");
   expect(show?.builder.toJSON().options?.map((option) => option.name)).toEqual(["meetup"]);
