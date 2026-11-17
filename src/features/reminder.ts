@@ -32,6 +32,7 @@ import {
   listReminderHistory,
   listSchedules,
   offsetFromParts,
+  pruneReminderHistory,
   reminderBaseAt,
   saveReminderSettings,
   validateReminderOffsets,
@@ -101,9 +102,9 @@ function statusLabel(
     case "SENT":
       return "送信済み";
     case "FAILED":
-      return schedule.lastError ? `失敗: ${schedule.lastError}` : "失敗";
+      return schedule.lastError ? `失敗: ${schedule.lastError.slice(0, 200)}` : "失敗";
     case "SKIPPED":
-      return schedule.skipReason ? `スキップ: ${schedule.skipReason}` : "スキップ";
+      return schedule.skipReason ? `スキップ: ${schedule.skipReason.slice(0, 200)}` : "スキップ";
   }
 }
 
@@ -227,9 +228,14 @@ async function resolveDraft(
     await replyEphemeral(interaction, "設定画面の有効期限が切れました。`/meetupper reminder` を開き直してください。");
     return null;
   }
-  draft.expiresAt = Date.now() + DRAFT_TTL_MS;
   if (draft.ownerId !== interaction.user.id) {
     await replyEphemeral(interaction, "この設定画面は開いた本人だけが操作できます。");
+    return null;
+  }
+  // Every control must prove it belongs to this guild's panel, not just to a matching draft id.
+  const interactionGuildId = interaction.guildId ?? interaction.guild?.id ?? null;
+  if (interactionGuildId === null || interactionGuildId !== draft.guildId) {
+    await replyEphemeral(interaction, "この設定画面は別のサーバーでは操作できません。");
     return null;
   }
   const meetup = getMeetup(draft.meetupId);
@@ -241,6 +247,8 @@ async function resolveDraft(
     await replyEphemeral(interaction, "主催者または共同主催者のみ操作できます。");
     return null;
   }
+  // Only a successfully authorised interaction keeps the draft alive.
+  draft.expiresAt = Date.now() + DRAFT_TTL_MS;
   return { draft, meetup };
 }
 
@@ -251,8 +259,12 @@ function parseField(value: string, label: string): number {
   return Number(text);
 }
 
-function historyEmbed(meetup: Meetup, page: number): EmbedBuilder {
-  const { rows, total } = listReminderHistory(meetup.id, HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE);
+function historyEmbed(
+  meetup: Meetup,
+  rows: ReturnType<typeof listReminderHistory>["rows"],
+  total: number,
+  page: number,
+): EmbedBuilder {
   const pages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
   const embed = new EmbedBuilder()
     .setTitle(`リマインダー履歴: ${meetup.name}`)
@@ -266,7 +278,7 @@ function historyEmbed(meetup: Meetup, page: number): EmbedBuilder {
     rows
       .map((row) => {
         const sent = row.sentAt ? ` / 送信 ${discordTimestamp(row.sentAt, "t")}` : "";
-        const reason = row.reason ? `\n理由: ${row.reason}` : "";
+        const reason = row.reason ? `\n理由: ${row.reason.slice(0, 200)}` : "";
         return `**${row.status}** ${discordTimestamp(row.scheduledAt, "F")}（${formatOffset(row.offsetSeconds)} / 基準 ${discordTimestamp(row.baseAt, "d")}）${sent}${reason}`;
       })
       .join("\n\n"),
@@ -320,12 +332,18 @@ async function updateHistory(
   meetup: Meetup,
   page: number,
 ): Promise<void> {
-  const total = listReminderHistory(meetup.id, 1, 0).total;
-  const pages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
-  const safePage = Math.min(Math.max(0, page), pages - 1);
+  // The history view is also the natural place to enforce the 90-day retention window.
+  pruneReminderHistory();
+  const requestedPage = Math.max(0, page);
+  let history = listReminderHistory(meetup.id, HISTORY_PAGE_SIZE, requestedPage * HISTORY_PAGE_SIZE);
+  const pages = Math.max(1, Math.ceil(history.total / HISTORY_PAGE_SIZE));
+  const safePage = Math.min(requestedPage, pages - 1);
+  if (safePage !== requestedPage) {
+    history = listReminderHistory(meetup.id, HISTORY_PAGE_SIZE, safePage * HISTORY_PAGE_SIZE);
+  }
   await interaction.update({
-    embeds: [historyEmbed(meetup, safePage)],
-    components: historyComponents(draft, safePage, total),
+    embeds: [historyEmbed(meetup, history.rows, history.total, safePage)],
+    components: historyComponents(draft, safePage, history.total),
   });
 }
 
@@ -566,6 +584,10 @@ selectMenu(/^reminder:remove:([A-Za-z0-9]+)$/, async (interaction) => {
   if (!resolved) return;
   const { draft, meetup } = resolved;
   const offset = Number(interaction.values[0]);
+  if (!draft.offsets.includes(offset)) {
+    await updatePanel(interaction, draft, meetup, "通知時刻が不正です。");
+    return;
+  }
   if (draft.enabled && draft.offsets.length <= 1) {
     await updatePanel(
       interaction,
