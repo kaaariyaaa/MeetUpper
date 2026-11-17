@@ -17,7 +17,6 @@ import {
   countApproved,
   deleteReminders,
   getMeetup,
-  getMeetupByChannelId,
   getParticipant,
   isHost,
   listCohosts,
@@ -33,6 +32,7 @@ import {
   fetchMember,
   replyEphemeral,
   replyError,
+  resolveTargetMeetup,
   revokeChannelAccess,
   sendToMeetupChannel,
   syncMeetupAccess,
@@ -81,17 +81,6 @@ async function runButton(
 function resolveMeetup(guild: Guild, id: number): Meetup {
   const meetup = getMeetup(id);
   if (!meetup || meetup.guildId !== guild.id) throw new Error("オフ会が見つかりません。");
-  return meetup;
-}
-
-/** Resolves a meetup from the dedicated channel the command was run in, if any. */
-function resolveMeetupFromChannel(guild: Guild, channelId: string | null): Meetup {
-  const meetup = channelId ? getMeetupByChannelId(channelId) : null;
-  if (!meetup || meetup.guildId !== guild.id) {
-    throw new Error(
-      "オフ会IDを指定するか、ACTIVEなオフ会の専用チャンネル内で実行してください。",
-    );
-  }
   return meetup;
 }
 
@@ -154,7 +143,7 @@ subcommand(
     .setName("info")
     .setDescription("集合時間・集合場所を更新します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
     )
     .addStringOption((option) =>
       option
@@ -167,7 +156,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireManage(meetup, interaction.user.id);
       requireActive(meetup);
 
@@ -207,10 +196,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const channel = interaction.channel;
-      const channelId = channel?.isThread() ? channel.parentId : interaction.channelId;
-      const id = interaction.options.getInteger("meetup");
-      const meetup = id === null ? resolveMeetupFromChannel(guild, channelId) : resolveMeetup(guild, id);
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireActive(meetup);
       const actorId = interaction.user.id;
 
@@ -240,10 +226,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const channel = interaction.channel;
-      const channelId = channel?.isThread() ? channel.parentId : interaction.channelId;
-      const id = interaction.options.getInteger("meetup");
-      const meetup = id === null ? resolveMeetupFromChannel(guild, channelId) : resolveMeetup(guild, id);
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireManage(meetup, interaction.user.id);
       for (const part of chunk(participantsSummary(meetup.id))) {
         await replyEphemeral(interaction, part);
@@ -258,9 +241,6 @@ subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("cohost")
     .setDescription("共同主催者を追加・削除します")
-    .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
-    )
     .addUserOption((option) =>
       option.setName("user").setDescription("対象ユーザー").setRequired(true),
     )
@@ -270,10 +250,13 @@ subcommand(
         .setDescription("操作")
         .setRequired(true)
         .addChoices({ name: "追加", value: "add" }, { name: "削除", value: "remove" }),
+    )
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireHost(meetup, interaction.user.id);
       requireActive(meetup);
       const target = interaction.options.getUser("user", true);
@@ -305,15 +288,15 @@ subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("host")
     .setDescription("主催者を変更します")
-    .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
-    )
     .addUserOption((option) =>
       option.setName("user").setDescription("新しい主催者").setRequired(true),
+    )
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireHost(meetup, interaction.user.id);
       requireActive(meetup);
       const target = interaction.options.getUser("user", true);
@@ -348,7 +331,7 @@ subcommand(
     .setName("edit")
     .setDescription("オフ会の基本情報を編集します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
     )
     .addStringOption((option) =>
       option.setName("name").setDescription("新しいオフ会名").setMaxLength(100),
@@ -362,7 +345,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const meetup = resolveMeetup(guild, interaction.options.getInteger("meetup", true));
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireManage(meetup, interaction.user.id);
       requireActive(meetup);
 
@@ -430,10 +413,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const channel = interaction.channel;
-      const channelId = channel?.isThread() ? channel.parentId : interaction.channelId;
-      const id = interaction.options.getInteger("meetup");
-      const meetup = id === null ? resolveMeetupFromChannel(guild, channelId) : resolveMeetup(guild, id);
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireManage(meetup, interaction.user.id);
       requireActive(meetup);
 
@@ -462,10 +442,7 @@ subcommand(
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
-      const channel = interaction.channel;
-      const channelId = channel?.isThread() ? channel.parentId : interaction.channelId;
-      const id = interaction.options.getInteger("meetup");
-      const meetup = id === null ? resolveMeetupFromChannel(guild, channelId) : resolveMeetup(guild, id);
+      const meetup = resolveTargetMeetup(guild, interaction);
       requireHost(meetup, interaction.user.id);
       requireActive(meetup);
 

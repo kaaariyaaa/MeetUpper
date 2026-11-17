@@ -7,18 +7,20 @@
 | `/meetup init` | サーバー管理者 | `MeetUp` カテゴリ・`オフ会募集` フォーラム・`招待` チャンネルを作成する（既存なら再利用） |
 | `/meetup create` | サーバーメンバー全員 | オフ会を作成する（Public / Private、承認方式、日時、集合情報、共同主催者、イベント連携。`capacity` 省略時は定員なし） |
 | `/meetup list` | メンバー全員 | ACTIVE なオフ会の一覧を表示する（Private は招待・申請済みのものだけ表示） |
-| `/meetup show <meetup>` | 閲覧権限のある人 | オフ会の詳細を表示する（集合場所は参加確定者と主催者側のみ） |
-| `/meetup apply <meetup>` | メンバー全員（Private は招待済みの人） | 参加申請する |
-| `/meetup invite <meetup> <user>` | 主催者・共同主催者・参加確定者 | メンバーを招待する（参加確定者の場合は主催者承認を経て DM 送信） |
-| `/meetup edit <meetup>` | 主催者・共同主催者 | オフ会名・説明・定員・開催日時を変更する（日時変更時はリマインドとスケジュールイベントも更新し、Public は募集投稿も更新） |
-| `/meetup info <meetup>` | 主催者・共同主催者 | 集合時間・集合場所を変更して参加者へ通知する |
-| `/meetup leave <meetup>` | 参加確定者 | 参加をキャンセルする（主催者は不可） |
-| `/meetup members <meetup>` | 主催者・共同主催者 | 参加者と状態の一覧を表示する |
-| `/meetup cohost <meetup> <user> <add\|remove>` | 主催者 | 共同主催者を追加・削除する |
-| `/meetup host <meetup> <user>` | 主催者 | 主催者を変更する |
-| `/meetup archive <meetup>` | 主催者・共同主催者 | 確認のうえアーカイブする |
-| `/meetup cancel [meetup]` | 主催者 | 確認のうえオフ会を中止する。`meetup` を省略すると実行した専用チャンネルのオフ会を対象にする |
-| `/meetup remind <meetup>` | 主催者・共同主催者 | 参加確定者に今すぐリマインドを送る |
+| `/meetup show [meetup]` | 閲覧権限のある人 | オフ会の詳細を表示する（集合場所は参加確定者と主催者側のみ） |
+| `/meetup apply [meetup]` | メンバー全員（Private は招待済みの人） | 参加申請する |
+| `/meetup invite <user> [meetup]` | 主催者・共同主催者・参加確定者 | メンバーを招待する（参加確定者の場合は主催者承認を経て DM 送信） |
+| `/meetup edit [meetup]` | 主催者・共同主催者 | オフ会名・説明・定員・開催日時を変更する（日時変更時はリマインドとスケジュールイベントも更新し、Public は募集投稿も更新） |
+| `/meetup info [meetup]` | 主催者・共同主催者 | 集合時間・集合場所を変更して参加者へ通知する |
+| `/meetup leave [meetup]` | 参加確定者 | 参加をキャンセルする（主催者は不可） |
+| `/meetup members [meetup]` | 主催者・共同主催者 | 参加者と状態の一覧を表示する |
+| `/meetup cohost <user> <add\|remove> [meetup]` | 主催者 | 共同主催者を追加・削除する |
+| `/meetup host <user> [meetup]` | 主催者 | 主催者を変更する |
+| `/meetup archive [meetup]` | 主催者・共同主催者 | 確認のうえアーカイブする |
+| `/meetup cancel [meetup]` | 主催者 | 確認のうえオフ会を中止する |
+| `/meetup remind [meetup]` | 主催者・共同主催者 | 参加確定者に今すぐリマインドを送る |
+
+`[meetup]` は任意。オフ会の専用チャンネル（またはその中のスレッド）や `オフ会募集` の募集スレッド内で実行すると省略できる。
 
 ## ボタン操作
 

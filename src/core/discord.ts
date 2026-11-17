@@ -4,6 +4,7 @@ import {
   OverwriteType,
   PermissionFlagsBits,
   type CategoryChannel,
+  type ChatInputCommandInteraction,
   type Client,
   type ForumChannel,
   type Guild,
@@ -18,7 +19,14 @@ import {
 } from "discord.js";
 import { config } from "../config.ts";
 import type { Meetup } from "./types.ts";
-import { listCohosts, listParticipants, updateMeetup } from "./meetup.ts";
+import {
+  findMeetupByChannelId,
+  findMeetupByThreadId,
+  getMeetup,
+  listCohosts,
+  listParticipants,
+  updateMeetup,
+} from "./meetup.ts";
 
 const CATEGORY_CHANNEL_LIMIT = 50;
 
@@ -81,6 +89,44 @@ export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
   if (find()) return true;
   await guild.channels.fetch().catch(() => undefined);
   return find();
+}
+
+/** The meetup owning a channel: its dedicated channel, a thread in it, or the recruitment thread. */
+export function meetupFromChannel(
+  channel: { id: string; isThread?: () => boolean; parentId?: string | null } | null,
+): Meetup | null {
+  if (!channel) return null;
+  if (channel.isThread?.()) {
+    const parentId = channel.parentId ?? null;
+    return findMeetupByThreadId(channel.id) ?? (parentId ? findMeetupByChannelId(parentId) : null);
+  }
+  return findMeetupByChannelId(channel.id);
+}
+
+/** Meetup owning the channel/thread the command was run in, without the id option. */
+export function meetupFromInteraction(interaction: ChatInputCommandInteraction): Meetup | null {
+  return (
+    meetupFromChannel(interaction.channel) ??
+    findMeetupByThreadId(interaction.channelId) ??
+    findMeetupByChannelId(interaction.channelId)
+  );
+}
+
+/** Resolves the subcommand's meetup from the optional `meetup` id or the channel it was run in. */
+export function resolveTargetMeetup(guild: Guild, interaction: ChatInputCommandInteraction): Meetup {
+  const id = interaction.options.getInteger("meetup");
+  if (id !== null) {
+    const meetup = getMeetup(id);
+    if (!meetup || meetup.guildId !== guild.id) throw new Error("オフ会が見つかりません。");
+    return meetup;
+  }
+  const meetup = meetupFromInteraction(interaction);
+  if (!meetup || meetup.guildId !== guild.id) {
+    throw new Error(
+      "オフ会IDを指定するか、オフ会の専用チャンネルまたは募集スレッド内で実行してください。",
+    );
+  }
+  return meetup;
 }
 
 export async function ensureLayout(guild: Guild): Promise<GuildLayout> {

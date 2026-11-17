@@ -24,6 +24,7 @@ import {
 } from "../core/meetup.ts";
 import {
   deferEphemeral,
+  meetupFromInteraction,
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
@@ -286,10 +287,23 @@ subcommand(
     .setName("apply")
     .setDescription("オフ会に参加申請します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true).setMinValue(1),
+      option.setName("meetup").setDescription("オフ会ID（募集スレッド内なら省略可）").setMinValue(1),
     ),
   async (interaction) => {
-    await submitApplication(interaction, interaction.options.getInteger("meetup", true));
+    const id = interaction.options.getInteger("meetup");
+    if (id !== null) {
+      await submitApplication(interaction, id);
+      return;
+    }
+    const meetup = meetupFromInteraction(interaction);
+    if (!meetup) {
+      await replyEphemeral(
+        interaction,
+        "オフ会IDを指定するか、募集スレッドまたは専用チャンネル内で実行してください。",
+      );
+      return;
+    }
+    await submitApplication(interaction, meetup.id);
   },
 );
 

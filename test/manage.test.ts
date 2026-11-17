@@ -8,6 +8,7 @@ testDb.exec("DELETE FROM meetups");
 
 const { findButton, getSubcommands } = await import("../src/core/registry.ts");
 const { createMeetup, updateMeetup } = await import("../src/core/meetup.ts");
+const { meetupFromChannel } = await import("../src/core/discord.ts");
 await import("../src/features/manage.ts");
 
 test("manage registers its subcommands", () => {
@@ -80,4 +81,32 @@ test("cancel asks for an id outside the meetup channel", async () => {
   await cancel.execute(interaction as never);
 
   expect(JSON.stringify(calls)).toContain("専用チャンネル");
+});
+
+test("meetupFromChannel resolves the dedicated channel and the recruitment thread", () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "解決テスト",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  updateMeetup(meetup.id, { channelId: "chan-resolve", forumThreadId: "thread-resolve" });
+
+  expect(meetupFromChannel({ id: "chan-resolve" })?.id).toBe(meetup.id);
+  expect(
+    meetupFromChannel({ id: "thread-resolve", isThread: () => true, parentId: "forum" })?.id,
+  ).toBe(meetup.id);
+  expect(
+    meetupFromChannel({ id: "other-thread", isThread: () => true, parentId: "chan-resolve" })?.id,
+  ).toBe(meetup.id);
+  expect(meetupFromChannel({ id: "unknown" })).toBeNull();
+  expect(meetupFromChannel(null)).toBeNull();
 });

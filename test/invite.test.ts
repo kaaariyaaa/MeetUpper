@@ -20,7 +20,7 @@ function inviteSubcommand() {
   return getSubcommands().find((entry) => entry.name === "invite");
 }
 
-test("invite registers its subcommand with required options", () => {
+test("invite registers its subcommand with an optional meetup id", () => {
   const entry = inviteSubcommand();
   expect(entry).toBeDefined();
   expect(entry?.builder.name).toBe("invite");
@@ -29,7 +29,7 @@ test("invite registers its subcommand with required options", () => {
   const options = json.options ?? [];
   const meetup = options.find((option) => option.name === "meetup");
   const user = options.find((option) => option.name === "user");
-  expect(meetup?.required).toBe(true);
+  expect(meetup?.required).toBeFalsy();
   expect(user?.required).toBe(true);
 });
 

@@ -16,6 +16,7 @@ import {
   isLayoutInitialized,
   replyEphemeral,
   replyError,
+  resolveTargetMeetup,
   sendToMeetupChannel,
   setupRequiredMessage,
   syncMeetupAccess,
@@ -147,11 +148,11 @@ subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("invite")
     .setDescription("メンバーをオフ会に招待します")
-    .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
-    )
     .addUserOption((option) =>
       option.setName("user").setDescription("招待するメンバー").setRequired(true),
+    )
+    .addIntegerOption((option) =>
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     try {
@@ -166,11 +167,7 @@ subcommand(
         return;
       }
 
-      const meetup = getMeetup(interaction.options.getInteger("meetup", true));
-      if (!meetup || meetup.guildId !== guild.id) {
-        await replyEphemeral(interaction, "オフ会が見つかりません");
-        return;
-      }
+      const meetup = resolveTargetMeetup(guild, interaction);
       if (meetup.state !== "ACTIVE") {
         await replyEphemeral(interaction, "終了または中止されたオフ会には招待できません");
         return;

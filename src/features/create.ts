@@ -17,6 +17,7 @@ import {
   isLayoutInitialized,
   replyEphemeral,
   replyError,
+  resolveTargetMeetup,
   setupRequiredMessage,
   syncMeetupAccess,
 } from "../core/discord.ts";
@@ -283,18 +284,14 @@ subcommand(
     .setName("show")
     .setDescription("オフ会の詳細を表示します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true),
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル・募集スレッド内なら省略可）"),
     ),
   async (interaction) => {
     try {
       const guild = await requireGuild(interaction);
       if (!guild) return;
 
-      const meetup = getMeetup(interaction.options.getInteger("meetup", true));
-      if (!meetup || meetup.guildId !== guild.id) {
-        await replyEphemeral(interaction, "オフ会が見つかりません。");
-        return;
-      }
+      const meetup = resolveTargetMeetup(guild, interaction);
 
       const userId = interaction.user.id;
       const manager = canManage(meetup, userId);

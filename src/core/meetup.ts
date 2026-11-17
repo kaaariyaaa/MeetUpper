@@ -75,6 +75,22 @@ export function getMeetupByChannelId(channelId: string): Meetup | null {
   return row ? toMeetup(row) : null;
 }
 
+/** Finds the meetup owning a dedicated channel, whatever its state (for command routing). */
+export function findMeetupByChannelId(channelId: string): Meetup | null {
+  const row = db.query("SELECT * FROM meetups WHERE channel_id = ? ORDER BY id DESC LIMIT 1").get(channelId) as
+    | Parameters<typeof toMeetup>[0]
+    | null;
+  return row ? toMeetup(row) : null;
+}
+
+/** Finds the meetup owning a recruitment forum thread, whatever its state (for command routing). */
+export function findMeetupByThreadId(threadId: string): Meetup | null {
+  const row = db.query("SELECT * FROM meetups WHERE forum_thread_id = ? ORDER BY id DESC LIMIT 1").get(threadId) as
+    | Parameters<typeof toMeetup>[0]
+    | null;
+  return row ? toMeetup(row) : null;
+}
+
 export function listMeetups(guildId: string, states: MeetupState[] = ["ACTIVE"]): Meetup[] {
   const placeholders = states.map(() => "?").join(", ");
   const rows = db

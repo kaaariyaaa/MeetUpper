@@ -1,5 +1,11 @@
 import { SlashCommandSubcommandBuilder, type Client } from "discord.js";
-import { deferEphemeral, getMeetupChannel, replyEphemeral, replyError } from "../core/discord.ts";
+import {
+  deferEphemeral,
+  getMeetupChannel,
+  replyEphemeral,
+  replyError,
+  resolveTargetMeetup,
+} from "../core/discord.ts";
 import { canManage, dueReminders, getMeetup, listParticipants, markReminderSent } from "../core/meetup.ts";
 import { setup, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
@@ -99,7 +105,7 @@ subcommand(
     .setName("remind")
     .setDescription("参加確定者にリマインドを送信します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID").setRequired(true).setMinValue(1),
+      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）").setMinValue(1),
     ),
   async (interaction) => {
     if (!interaction.guild) {
@@ -108,12 +114,7 @@ subcommand(
     }
     await deferEphemeral(interaction);
     try {
-      const meetupId = interaction.options.getInteger("meetup", true);
-      const meetup = getMeetup(meetupId);
-      if (!meetup || meetup.guildId !== interaction.guild.id) {
-        await replyEphemeral(interaction, "オフ会が見つかりません。");
-        return;
-      }
+      const meetup = resolveTargetMeetup(interaction.guild, interaction);
       if (!canManage(meetup, interaction.user.id)) {
         await replyEphemeral(interaction, "リマインドを送信する権限がありません。");
         return;

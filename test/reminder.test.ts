@@ -111,11 +111,12 @@ async function invokeRemind(
   return { sent, replies };
 }
 
-test("remind subcommand is registered with a required meetup option", () => {
+test("remind subcommand can infer the meetup from the channel", () => {
   const entry = getSubcommands().find((item) => item.name === "remind");
   expect(entry).toBeDefined();
   const json = entry!.builder.toJSON() as { options?: { name: string; required?: boolean }[] };
-  expect(json.options?.[0]).toMatchObject({ name: "meetup", required: true });
+  expect(json.options?.[0]).toMatchObject({ name: "meetup" });
+  expect(json.options?.[0]?.required).toBeFalsy();
 });
 
 test("tick announces due reminders to approved participants only, once", async () => {

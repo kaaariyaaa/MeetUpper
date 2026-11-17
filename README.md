@@ -89,6 +89,8 @@ Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は 
 | `/meetup archive` | オフ会を手動でアーカイブする |
 | `/meetup cancel` | オフ会を中止する |
 
+`meetup`（オフ会ID）は、オフ会の専用チャンネルや募集スレッド内で実行する場合は省略できます。
+
 `/meetup create` では `name`（名前）、`start`（開催日時）、`mode`（公開形式）が必須です。`capacity`（定員）は任意で、省略すると定員なしになります。開催日時は `YYYY-MM-DD HH:mm` 形式、またはタイムゾーンのオフセットを含む ISO 8601 形式で入力できます。前者は `DEFAULT_TIMEZONE` に従って解釈されます。
 
 Public で参加者投票を選ぶ場合は `approval: VOTE` と `required-votes` を指定します。投票できるのは参加確定者だけなので、最初の参加確定者は主催者側から招待する必要があります。Discord スケジュールイベント連携は既定で無効です。
