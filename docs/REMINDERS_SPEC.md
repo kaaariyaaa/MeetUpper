@@ -2,7 +2,7 @@
 
 対象リポジトリ: [MeetUpper](https://github.com/kaaariyaaa/MeetUpper)
 全体設計: [DESIGN.md](../DESIGN.md)
-状態: 実装済み（このファイルが改修要件の正本）
+状態: 実装済み（コミット 1ee4177 時点。このファイルが改修要件の正本）
 
 ## 1. 目的
 
@@ -94,7 +94,7 @@
 
 ### 4.2 開催日時・集合時間の変更時
 
-日時を変更した場合は、新しい基準日時で通知予定をすべて再計算する。
+日時を変更した場合は、新しい基準日時で通知予定をすべて再計算する。通知基準日時（集合時間または開催日時）が変わらない変更では、通知予定を再計算しない。
 
 - 変更前に送信済みの通知も、新しい日時に対しては再び送信対象になる
 - 再計算時点ですでに過ぎている通知時刻は登録しない
@@ -178,7 +178,7 @@
 3. 4分後
 4. 8分後
 
-再試行を繰り返しても、元の通知予定時刻から15分を超えてはならない。
+再試行を繰り返しても、元の通知予定時刻から15分を超えてはならない。最終枠は期限直前に1分の余裕を残した時刻までとし、それを超える再試行は行わない。
 
 送信状態と再試行情報をデータベースに保持する。
 
@@ -188,7 +188,7 @@ Botが送信中に停止した場合は、再起動後に未完了の通知を�
 
 15分以内かつ通知基準日時より前なら再試行する。期限切れなら送信しない。
 
-送信済みの通知は通常時に再送しない。Discordへの送信成功直後にBotが停止した場合など、送信結果が不明な通知は再試行を優先する。
+送信済みの通知は通常時に再送しない。Discordへの送信成功直後にBotが停止した場合など、送信結果が不明な通知は再試行を優先する。送信結果不明のまま期限切れになった通知は、失敗が確定していないため失敗扱いにせず、SKIPPEDとして記録して管理者への失敗通知は行わない。
 
 ### 7.5 複数通知が滞留した場合
 
@@ -416,8 +416,9 @@ MeetUpが中止・アーカイブされた場合も、履歴の保存期間は�
 ## 15. 参照ソース
 
 - [MeetUpper リポジトリ](https://github.com/kaaariyaaa/MeetUpper)
-- [既存リマインダー処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/features/reminder.ts)
-- [MeetUp管理・通知予定の登録処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/core/meetup.ts)
+- [リマインダー設定画面・コマンド](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/features/reminder.ts)
+- [通知設定・予定・履歴・再試行のDB操作](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/core/reminders.ts)
+- [送信・再試行・失敗通知の実行処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/core/reminderEngine.ts)
 - [データベース定義](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/db.ts)
-- [現在の通知時刻設定](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/config.ts)
+- [日時変更時の再計算処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/features/manage.ts)
 - [実装上の既存の決定事項](https://github.com/kaaariyaaa/MeetUpper/blob/main/docs/DECISIONS.md)
