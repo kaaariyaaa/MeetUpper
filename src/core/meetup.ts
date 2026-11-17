@@ -111,6 +111,7 @@ export function updateMeetup(
       | "hostId"
       | "meetingAt"
       | "meetingPlace"
+      | "approvalMode"
       | "channelId"
       | "forumThreadId"
       | "eventId"
@@ -126,6 +127,7 @@ export function updateMeetup(
     hostId: "host_id",
     meetingAt: "meeting_at",
     meetingPlace: "meeting_place",
+    approvalMode: "approval_mode",
     channelId: "channel_id",
     forumThreadId: "forum_thread_id",
     eventId: "event_id",

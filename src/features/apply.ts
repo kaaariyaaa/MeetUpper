@@ -88,7 +88,9 @@ export function applicationEmbed(
         value:
           meetup.approvalMode === "VOTE"
             ? `参加者投票（必要票数 ${meetup.requiredVotes}）`
-            : "主催者承認",
+            : meetup.approvalMode === "DIRECT"
+              ? "直参加"
+              : "主催者承認",
         inline: true,
       },
       { name: "申請日時", value: discordTimestamp(appliedAt), inline: true },
@@ -183,6 +185,26 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
     const denial = applicationDenial(meetup, interaction.user.id);
     if (denial) {
       await replyEphemeral(interaction, denial);
+      return;
+    }
+
+    if (meetup.approvalMode === "DIRECT") {
+      approveParticipant(meetup, interaction.user.id, interaction.user.id);
+      const joined = getMeetup(meetup.id)!;
+      await syncMeetupAccess(guild, joined).catch((error) =>
+        console.error("参加者の権限同期に失敗しました", error),
+      );
+      const overCapacity = joined.capacity > 0 && countApproved(joined.id) > joined.capacity;
+      await announceJoin(
+        guild,
+        joined,
+        interaction.user.id,
+        overCapacity ? "⚠️ 定員を超えています。主催者へ確認してください。" : undefined,
+      );
+      await replyEphemeral(
+        interaction,
+        `参加しました${overCapacity ? "\n⚠️ 定員を超えています。主催者へ確認してください。" : ""}`,
+      );
       return;
     }
 

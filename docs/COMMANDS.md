@@ -5,12 +5,12 @@
 | コマンド | 実行できる人 | 内容 |
 | --- | --- | --- |
 | `/meetupper init` | サーバー管理者 | `MeetUp` カテゴリ・`meetup募集` フォーラム・`招待` チャンネルを作成する（既存なら再利用） |
-| `/meetupper create` | サーバーメンバー全員 | MeetUpを作成する（Public / Private、承認方式、日時、集合情報、共同主催者、イベント連携。`capacity` 省略時は定員なし） |
+| `/meetupper create` | サーバーメンバー全員 | MeetUpを作成する（Public / Private、参加方法、日時、集合情報、共同主催者、イベント連携。参加方法は直参加・主催者承認・参加者投票で、省略時は直参加。`capacity` 省略時は定員なし） |
 | `/meetupper list` | メンバー全員 | ACTIVE なMeetUpの一覧を表示する（Private は招待・申請済みのものだけ表示） |
 | `/meetupper show [meetup]` | 閲覧権限のある人 | MeetUpの詳細を表示する（集合場所は参加確定者と主催者側のみ） |
 | `/meetupper apply [meetup]` | メンバー全員（Private は招待済みの人） | 参加申請する |
 | `/meetupper invite <user> [meetup]` | 主催者・共同主催者・参加確定者 | メンバーを招待する（参加確定者の場合は主催者承認を経て DM 送信） |
-| `/meetupper edit [meetup]` | 主催者・共同主催者 | MeetUp名・説明・定員・開催日時を変更する（日時変更時はリマインドとスケジュールイベントも更新し、Public は募集投稿も更新） |
+| `/meetupper edit [meetup]` | 主催者・共同主催者 | MeetUp名・説明・定員・開催日時・参加方法を変更する（日時変更時はリマインドとスケジュールイベントも更新し、Public は募集投稿も更新） |
 | `/meetupper info [meetup]` | 主催者・共同主催者 | 集合時間・集合場所を変更して参加者へ通知する |
 | `/meetupper leave [meetup]` | 参加確定者 | 参加をキャンセルする（主催者は不可） |
 | `/meetupper kick <user> [meetup]` | 主催者・共同主催者 | 参加確定者をMeetUpから退出させる（専用チャンネルの権限を解除して参加者へ通知。退出させられた人は再申請できない） |

@@ -1,4 +1,4 @@
-import { EmbedBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { config } from "../config.ts";
 import { countApproved, listCohosts, listParticipants } from "./meetup.ts";
 import { discordTimestamp } from "./time.ts";
@@ -10,7 +10,7 @@ export function capacityLabel(capacity: number): string {
 }
 
 const MODE_LABEL = { PUBLIC: "Public", PRIVATE: "Private" } as const;
-const APPROVAL_LABEL = { HOST: "主催者承認", VOTE: "参加者投票" } as const;
+const APPROVAL_LABEL = { DIRECT: "直参加", HOST: "主催者承認", VOTE: "参加者投票" } as const;
 const STATE_LABEL = { ACTIVE: "ACTIVE", ARCHIVED: "ARCHIVED", CANCELLED: "CANCELLED" } as const;
 
 export function meetupEmbed(meetup: Meetup, options: { includeMeetingPlace?: boolean } = {}): EmbedBuilder {
@@ -42,9 +42,20 @@ export function meetupEmbed(meetup: Meetup, options: { includeMeetingPlace?: boo
 }
 
 function approvalLabel(meetup: Meetup): string {
-  return meetup.approvalMode === "VOTE"
-    ? `${APPROVAL_LABEL.VOTE}（必要票数 ${meetup.requiredVotes}）`
-    : APPROVAL_LABEL.HOST;
+  if (meetup.approvalMode === "VOTE") {
+    return `${APPROVAL_LABEL.VOTE}（必要票数 ${meetup.requiredVotes}）`;
+  }
+  return APPROVAL_LABEL[meetup.approvalMode];
+}
+
+/** Recruitment post button; the label follows whether joining needs approval. */
+export function applyButtonRow(meetup: Meetup): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`apply:start:${meetup.id}`)
+      .setLabel(meetup.approvalMode === "DIRECT" ? "参加する" : "参加申請")
+      .setStyle(ButtonStyle.Primary),
+  );
 }
 
 /** Embed for the public forum post and scheduled event: no exact meeting place. */

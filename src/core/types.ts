@@ -1,5 +1,5 @@
 export type MeetupMode = "PUBLIC" | "PRIVATE";
-export type ApprovalMode = "HOST" | "VOTE";
+export type ApprovalMode = "DIRECT" | "HOST" | "VOTE";
 export type MeetupState = "ACTIVE" | "ARCHIVED" | "CANCELLED";
 
 export type ParticipantState =

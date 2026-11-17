@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ChannelType } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,10 +9,13 @@ testDb.exec("DELETE FROM meetups");
 process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 
 const { findButton, getSubcommands } = await import("../src/core/registry.ts");
-const { applicationComponents, applicationDenial, applicationEmbed } = await import(
+const { applicationComponents, applicationDenial, applicationEmbed, submitApplication } = await import(
   "../src/features/apply.ts"
 );
-const { createMeetup, setParticipantState } = await import("../src/core/meetup.ts");
+const { applyButtonRow } = await import("../src/core/views.ts");
+const { createMeetup, getParticipant, setParticipantState, updateMeetup } = await import(
+  "../src/core/meetup.ts"
+);
 type CreateMeetupInput = Parameters<typeof createMeetup>[0];
 
 function newMeetup(overrides: Partial<CreateMeetupInput> = {}) {
@@ -110,4 +114,65 @@ test("kicked participants cannot re-apply", () => {
   const meetup = newMeetup();
   setParticipantState(meetup.id, "kicked-user", "KICKED");
   expect(applicationDenial(meetup, "kicked-user")).toBe("このMeetUpからは退出させられています");
+});
+
+test("direct-join meetups approve the applicant immediately", async () => {
+  const meetup = newMeetup({ approvalMode: "DIRECT" });
+  updateMeetup(meetup.id, { channelId: "chan-direct" });
+
+  const sent: unknown[] = [];
+  const channel = {
+    id: "chan-direct",
+    type: ChannelType.GuildText,
+    send: async (payload: unknown) => {
+      sent.push(payload);
+    },
+    permissionOverwrites: {
+      cache: new Map(),
+      edit: async () => undefined,
+      delete: async () => undefined,
+    },
+  };
+  const guild = {
+    id: "guild",
+    client: { user: { id: "bot" } },
+    roles: { everyone: { id: "everyone" } },
+    members: { me: { id: "bot" } },
+    channels: { fetch: async (id: string) => (id === "chan-direct" ? channel : null) },
+  };
+  const replies: unknown[] = [];
+  const interaction = {
+    guild,
+    user: { id: "u-direct" },
+    client: {},
+    deferred: false,
+    replied: false,
+    deferReply: async () => {
+      interaction.deferred = true;
+    },
+    reply: async (payload: unknown) => {
+      replies.push(payload);
+    },
+    editReply: async (payload: unknown) => {
+      replies.push(payload);
+    },
+    followUp: async (payload: unknown) => {
+      replies.push(payload);
+    },
+  };
+
+  await submitApplication(interaction as never, meetup.id);
+
+  expect(getParticipant(meetup.id, "u-direct")?.state).toBe("APPROVED");
+  expect(JSON.stringify(sent)).toContain("参加しました");
+  expect(JSON.stringify(replies)).toContain("参加しました");
+});
+
+test("recruitment button label follows the join mode", () => {
+  const direct = applyButtonRow(newMeetup({ approvalMode: "DIRECT" })).toJSON();
+  expect(JSON.stringify(direct)).toContain("参加する");
+  expect(JSON.stringify(direct)).not.toContain("参加申請");
+
+  const approval = applyButtonRow(newMeetup({ approvalMode: "HOST" })).toJSON();
+  expect(JSON.stringify(approval)).toContain("参加申請");
 });

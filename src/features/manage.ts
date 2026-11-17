@@ -41,8 +41,14 @@ import {
 } from "../core/discord.ts";
 import { cancelEvent, updateEvent } from "../core/events.ts";
 import { parseDateTime } from "../core/time.ts";
-import { dateTimeHint, meetupEmbed, participantsSummary, publicEmbed } from "../core/views.ts";
-import type { Meetup } from "../core/types.ts";
+import {
+  applyButtonRow,
+  dateTimeHint,
+  meetupEmbed,
+  participantsSummary,
+  publicEmbed,
+} from "../core/views.ts";
+import type { ApprovalMode, Meetup } from "../core/types.ts";
 
 const ABORT_ID = "manage:abort";
 
@@ -390,6 +396,16 @@ subcommand(
     )
     .addStringOption((option) =>
       option.setName("start").setDescription("新しい開催日時 (YYYY-MM-DD HH:mm)"),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("approval")
+        .setDescription("参加方法（直参加 / 主催者承認 / 参加者投票）")
+        .addChoices(
+          { name: "直参加", value: "DIRECT" },
+          { name: "主催者承認", value: "HOST" },
+          { name: "参加者投票", value: "VOTE" },
+        ),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -398,10 +414,11 @@ subcommand(
       requireActive(meetup);
 
       const name = interaction.options.getString("name")?.trim();
+      const approvalInput = interaction.options.getString("approval") as ApprovalMode | null;
       const description = interaction.options.getString("description")?.trim();
       const capacity = interaction.options.getInteger("capacity");
       const startInput = interaction.options.getString("start")?.trim();
-      if (!name && description === undefined && capacity === null && !startInput) {
+      if (!name && description === undefined && capacity === null && !startInput && approvalInput === null) {
         throw new Error("変更する項目を1つ以上指定してください。");
       }
 
@@ -410,10 +427,17 @@ subcommand(
         description?: string;
         capacity?: number;
         startAt?: number;
+        approvalMode?: ApprovalMode;
       } = {};
       if (name) fields.name = name;
       if (description !== undefined) fields.description = description;
       if (capacity !== null) fields.capacity = capacity;
+      if (approvalInput !== null) {
+        if (meetup.mode === "PRIVATE" && approvalInput !== "HOST") {
+          throw new Error("招待制のMeetUpは主催者承認に固定です。");
+        }
+        fields.approvalMode = approvalInput;
+      }
       if (startInput) {
         const startAt = parseDateTime(startInput);
         if (startAt === null) throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
@@ -433,7 +457,12 @@ subcommand(
           if (thread?.isThread()) {
             await thread.setName(updated.name.slice(0, 100));
             const starter = await thread.fetchStarterMessage().catch(() => null);
-            if (starter) await starter.edit({ embeds: [publicEmbed(updated)] });
+            if (starter) {
+              await starter.edit({
+                embeds: [publicEmbed(updated)],
+                components: [applyButtonRow(updated)],
+              });
+            }
           }
         } catch (error) {
           console.error("募集投稿の更新に失敗しました", error);

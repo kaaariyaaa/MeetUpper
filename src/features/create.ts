@@ -1,7 +1,4 @@
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   SlashCommandSubcommandBuilder,
   type ChatInputCommandInteraction,
@@ -36,7 +33,7 @@ import {
 import { subcommand } from "../core/registry.ts";
 import { discordTimestamp, parseDateTime } from "../core/time.ts";
 import type { ApprovalMode, MeetupMode } from "../core/types.ts";
-import { dateTimeHint, meetupEmbed, publicEmbed } from "../core/views.ts";
+import { applyButtonRow, dateTimeHint, meetupEmbed, publicEmbed } from "../core/views.ts";
 
 /** "カンマ区切りのメンションまたはID" から数字IDだけを取り出す。 */
 export function extractCohostIds(input: string): string[] {
@@ -92,8 +89,12 @@ subcommand(
     .addStringOption((option) =>
       option
         .setName("approval")
-        .setDescription("承認方式")
-        .addChoices({ name: "主催者承認", value: "HOST" }, { name: "参加者投票", value: "VOTE" }),
+        .setDescription("参加方法（省略時は直参加）")
+        .addChoices(
+          { name: "直参加", value: "DIRECT" },
+          { name: "主催者承認", value: "HOST" },
+          { name: "参加者投票", value: "VOTE" },
+        ),
     )
     .addIntegerOption((option) =>
       option
@@ -137,11 +138,13 @@ subcommand(
       }
 
       const mode = interaction.options.getString("mode", true) as MeetupMode;
-      // Private meetups always use host approval; voting is a Public-only mechanism.
-      const approvalMode: ApprovalMode =
-        mode === "PRIVATE"
-          ? "HOST"
-          : ((interaction.options.getString("approval") ?? "HOST") as ApprovalMode);
+      const approvalInput = interaction.options.getString("approval") as ApprovalMode | null;
+      if (mode === "PRIVATE" && approvalInput !== null && approvalInput !== "HOST") {
+        await replyEphemeral(interaction, "招待制のMeetUpは主催者承認に固定です。");
+        return;
+      }
+      // Direct join is the default for Public recruitment.
+      const approvalMode: ApprovalMode = mode === "PRIVATE" ? "HOST" : (approvalInput ?? "DIRECT");
       const requiredVotesInput = interaction.options.getInteger("required-votes");
       if (approvalMode === "VOTE" && requiredVotesInput === null) {
         await replyEphemeral(
@@ -203,15 +206,9 @@ subcommand(
       if (mode === "PUBLIC") {
         try {
           const layout = await ensureLayout(guild);
-          const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`apply:start:${meetup.id}`)
-              .setLabel("参加申請")
-              .setStyle(ButtonStyle.Primary),
-          );
           const thread = await layout.forum.threads.create({
             name: meetup.name.slice(0, 100),
-            message: { embeds: [publicEmbed(meetup)], components: [applyRow] },
+            message: { embeds: [publicEmbed(meetup)], components: [applyButtonRow(meetup)] },
           });
           updateMeetup(meetup.id, { forumThreadId: thread.id });
         } catch (error) {

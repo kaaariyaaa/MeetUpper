@@ -21,6 +21,9 @@
 ## Public MeetUp（主催者承認）
 
 - [ ] `/meetupper create` で `mode:PUBLIC`、`approval:HOST` のMeetUpを作成できる
+- [ ] `/meetupper create` で `approval:DIRECT`（または省略）のMeetUpを作成でき、募集の参加ボタンで即座に参加確定する
+- [ ] `/meetupper edit` で参加方法（直参加 / 主催者承認 / 参加者投票）を変更できる
+- [ ] 招待制（PRIVATE）は参加方法を主催者承認以外に変更できない
 - [ ] 非公開の専用チャンネルが作られ、主催者だけが閲覧できる
 - [ ] `meetup募集` に募集投稿が作られ、参加申請ボタンが付いている
 - [ ] `/meetupper list` で一般メンバーには Public だけが表示され、Private は招待・申請済みの人にだけ表示される
