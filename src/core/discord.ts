@@ -313,13 +313,14 @@ async function moveArchivedToBottom(guild: Guild, categoryId: string): Promise<v
   }
 }
 
-function channelSlug(meetup: Meetup): string {
+export function channelSlug(meetup: Meetup): string {
   const cleaned = meetup.name
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^\p{L}\p{N}_-]/gu, "")
-    .slice(0, 80);
-  return `meetup-${meetup.id}-${cleaned || "offkai"}`;
+    .slice(0, 100);
+  // Discord requires 2-100 characters for channel names.
+  return cleaned.length >= 2 ? cleaned : "offkai";
 }
 
 export async function getMeetupChannel(guild: Guild, meetup: Meetup): Promise<TextChannel | null> {

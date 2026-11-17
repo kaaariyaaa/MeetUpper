@@ -17,7 +17,7 @@
 | `/meetup cohost <meetup> <user> <add\|remove>` | 主催者 | 共同主催者を追加・削除する |
 | `/meetup host <meetup> <user>` | 主催者 | 主催者を変更する |
 | `/meetup archive <meetup>` | 主催者・共同主催者 | 確認のうえアーカイブする |
-| `/meetup cancel <meetup>` | 主催者 | 確認のうえオフ会を中止する |
+| `/meetup cancel [meetup]` | 主催者 | 確認のうえオフ会を中止する。`meetup` を省略すると実行した専用チャンネルのオフ会を対象にする |
 | `/meetup remind <meetup>` | 主催者・共同主催者 | 参加確定者に今すぐリマインドを送る |
 
 ## ボタン操作

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 process.env.DB_PATH ??= join(tmpdir(), `meetupper-layout-test-${process.pid}-${Date.now()}.db`);
 
-const { ensureLayout, isLayoutInitialized, setupRequiredMessage } = await import(
+const { channelSlug, ensureLayout, isLayoutInitialized, setupRequiredMessage } = await import(
   "../src/core/discord.ts"
 );
 
@@ -83,4 +83,12 @@ test("init creates a layout the bot can use and grants itself access at creation
   }
   expect(await isLayoutInitialized(guild)).toBe(true);
   expect(setupRequiredMessage(guild)).toContain("/meetup init");
+});
+
+test("meetup channel names are the meetup name only", () => {
+  const name = (value: string) => channelSlug({ name: value } as never);
+  expect(name(" 東京 オフ会 ")).toBe("東京-オフ会");
+  expect(name("test!")).toBe("test");
+  expect(name("")).toBe("offkai");
+  expect(name("x")).toBe("offkai");
 });
