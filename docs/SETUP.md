@@ -19,7 +19,7 @@
      - Read Message History
      - Manage Channels（専用チャンネルの作成・権限設定・移動）
      - Manage Roles（チャンネル権限の上書きに必要）
-     - Manage Threads / Create Private Threads（招待スレッド）
+     - Manage Threads / Create Public Threads / Create Private Threads（募集フォーラム投稿・招待スレッド。カテゴリ権限の設定にも必要）
      - Send Messages in Threads（招待スレッド・募集投稿への返信）
      - Create Events（外部スケジュールイベントの作成）
      - Manage Events（スケジュールイベントの変更）

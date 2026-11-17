@@ -84,6 +84,7 @@ export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
 }
 
 export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
+  requireLayoutPermissions(guild);
   let category = guild.channels.cache.find(
     (channel): channel is CategoryChannel =>
       channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
@@ -169,14 +170,32 @@ const LAYOUT_BOT_PERMISSIONS = {
   ManageThreads: true,
 };
 
-/** Re-applies the fixed layout rules to the category, which every channel below it inherits. */
-async function applyLayoutPermissions(guild: Guild, category: CategoryChannel): Promise<void> {
-  await category.permissionOverwrites
-    .edit(guild.roles.everyone, LAYOUT_EVERYONE_PERMISSIONS)
-    .catch(() => undefined);
+/**
+ * Discord rejects an overwrite that touches a permission the bot does not hold itself, which silently
+ * broke the whole layout setup. Fail with the missing permission instead.
+ */
+function requireLayoutPermissions(guild: Guild): void {
   const me = guild.members.me;
   if (!me) return;
-  await category.permissionOverwrites.edit(me, LAYOUT_BOT_PERMISSIONS).catch(() => undefined);
+  const missing = new Set<string>();
+  for (const options of [LAYOUT_EVERYONE_PERMISSIONS, LAYOUT_BOT_PERMISSIONS]) {
+    for (const key of Object.keys(options) as (keyof typeof PermissionFlagsBits)[]) {
+      if (!me.permissions.has(PermissionFlagsBits[key])) missing.add(key);
+    }
+  }
+  if (missing.size > 0) {
+    throw new Error(
+      `Bot に不足している権限があります: ${[...missing].join(", ")}。` +
+        "サーバー設定のロールで MeetUpper に付与してから、もう一度 /meetup init を実行してください。",
+    );
+  }
+}
+
+/** Re-applies the fixed layout rules to the category, which every channel below it inherits. */
+async function applyLayoutPermissions(guild: Guild, category: CategoryChannel): Promise<void> {
+  await category.permissionOverwrites.edit(guild.roles.everyone, LAYOUT_EVERYONE_PERMISSIONS);
+  const me = guild.members.me;
+  if (me) await category.permissionOverwrites.edit(me, LAYOUT_BOT_PERMISSIONS);
 }
 
 function childrenOf(guild: Guild, categoryId: string): GuildChannel[] {

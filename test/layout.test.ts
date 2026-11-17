@@ -11,7 +11,16 @@ const { channelSlug, ensureLayout, isLayoutInitialized, setupRequiredMessage } =
 
 const VIEW = new PermissionsBitField([PermissionFlagsBits.ViewChannel]);
 const NONE = new PermissionsBitField([]);
-const me = { id: "bot" };
+const ALL_LAYOUT = new PermissionsBitField([
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.SendMessagesInThreads,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.CreatePublicThreads,
+  PermissionFlagsBits.CreatePrivateThreads,
+  PermissionFlagsBits.ManageThreads,
+]);
+const me = { id: "bot", permissions: ALL_LAYOUT };
 
 interface FakeChannelData {
   id: string;
@@ -49,7 +58,7 @@ function makeChannel(data: FakeChannelData, viewable: boolean, sink?: { edits: E
   };
 }
 
-function makeGuild() {
+function makeGuild(botPermissions: PermissionsBitField = ALL_LAYOUT) {
   const edits: Edit[] = [];
   const cleared: string[] = [];
   const sink = { edits, cleared };
@@ -60,7 +69,7 @@ function makeGuild() {
     id: "g1",
     client: { user: { id: "bot" } },
     roles: { everyone: { id: "everyone" } },
-    members: { me },
+    members: { me: { ...me, permissions: botPermissions } },
     channels: {
       cache,
       fetch: async () => cache,
@@ -131,6 +140,16 @@ test("existing layout channels drop per-channel overwrites and inherit the categ
   await ensureLayout(guild);
 
   expect(cleared).toEqual(["forum", "invite"]);
+});
+
+test("init names the permission the bot is missing instead of failing silently", async () => {
+  const { guild, edits, created } = makeGuild(
+    new PermissionsBitField([PermissionFlagsBits.ViewChannel]),
+  );
+
+  await expect(ensureLayout(guild)).rejects.toThrow("CreatePublicThreads");
+  expect(created).toHaveLength(0);
+  expect(edits).toHaveLength(0);
 });
 
 test("meetup channel names are the meetup name only", () => {
