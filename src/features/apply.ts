@@ -33,6 +33,7 @@ import {
 import { button, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
 import type { Meetup } from "../core/types.ts";
+import { capacityLabel } from "../core/views.ts";
 
 const NOT_RECRUITING = "このオフ会は現在募集していません";
 
@@ -68,7 +69,7 @@ export function applicationEmbed(
   appliedAt: number,
 ): EmbedBuilder {
   const description = [`<@${applicantId}> が参加を申請しました。`];
-  if (approved >= meetup.capacity) {
+  if (meetup.capacity > 0 && approved >= meetup.capacity) {
     description.push("", "⚠️ 定員に達しています（承認すると超過します）");
   }
 
@@ -77,7 +78,7 @@ export function applicationEmbed(
     .setColor(0xf1c40f)
     .setDescription(description.join("\n"))
     .addFields(
-      { name: "定員", value: `${meetup.capacity}人（承認済み ${approved}人）`, inline: true },
+      { name: "定員", value: `${capacityLabel(meetup.capacity)}（承認済み ${approved}人）`, inline: true },
       {
         name: "承認方式",
         value:
@@ -260,7 +261,7 @@ async function confirmApproval(
 ): Promise<void> {
   approveParticipant(meetup, applicantId, approvedBy);
   const warning =
-    countApproved(meetup.id) > meetup.capacity
+    meetup.capacity > 0 && countApproved(meetup.id) > meetup.capacity
       ? "⚠️ 定員を超えて承認しました。参加希望者へ状況を共有してください。"
       : undefined;
   await interaction.update({

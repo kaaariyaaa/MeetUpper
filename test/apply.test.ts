@@ -87,6 +87,13 @@ test("application panel exposes capacity, approval mode and buttons", () => {
     `apply:reject:${hostMeetup.id}:u1`,
   ]);
 
+  const unlimited = newMeetup({ capacity: 0 });
+  const unlimitedEmbed = applicationEmbed(unlimited, "u3", 5, 0, Date.now()).toJSON();
+  expect(unlimitedEmbed.description).not.toContain("定員に達しています");
+  expect(unlimitedEmbed.fields?.some((field) => field.name === "定員" && field.value.includes("定員なし"))).toBe(
+    true,
+  );
+
   const voteMeetup = newMeetup({ approvalMode: "VOTE", requiredVotes: 2 });
   const voteEmbed = applicationEmbed(voteMeetup, "u2", 0, 0, Date.now()).toJSON();
   expect(voteEmbed.fields?.some((field) => field.value.includes("必要票数 2 / 現在 0票"))).toBe(

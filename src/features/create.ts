@@ -69,9 +69,6 @@ subcommand(
     .addStringOption((option) =>
       option.setName("name").setDescription("オフ会名").setMaxLength(100).setRequired(true),
     )
-    .addIntegerOption((option) =>
-      option.setName("capacity").setDescription("定員").setMinValue(1).setMaxValue(1000).setRequired(true),
-    )
     .addStringOption((option) =>
       option
         .setName("start")
@@ -84,6 +81,9 @@ subcommand(
         .setDescription("公開モード")
         .setRequired(true)
         .addChoices({ name: "公開", value: "PUBLIC" }, { name: "招待制", value: "PRIVATE" }),
+    )
+    .addIntegerOption((option) =>
+      option.setName("capacity").setDescription("定員（省略すると定員なし）").setMinValue(1).setMaxValue(1000),
     )
     .addStringOption((option) => option.setName("description").setDescription("説明"))
     .addStringOption((option) => option.setName("meeting-time").setDescription("集合時間"))
@@ -158,7 +158,7 @@ subcommand(
         hostId: interaction.user.id,
         name: interaction.options.getString("name", true),
         description: interaction.options.getString("description") ?? "",
-        capacity: interaction.options.getInteger("capacity", true),
+        capacity: interaction.options.getInteger("capacity") ?? 0,
         startAt,
         meetingAt,
         meetingPlace: interaction.options.getString("meeting-place"),

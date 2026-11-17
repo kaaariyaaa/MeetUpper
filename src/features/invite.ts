@@ -298,7 +298,7 @@ button(/^invite:accept:(\d+)$/, async (interaction, args) => {
     }
 
     approveParticipant(meetup, interaction.user.id, "invite");
-    const overCapacity = countApproved(meetup.id) > meetup.capacity;
+    const overCapacity = meetup.capacity > 0 && countApproved(meetup.id) > meetup.capacity;
     await interaction.editReply({
       content: `参加が確定しました${overCapacity ? "\n⚠️ 定員を超えています。主催者へ確認してください。" : ""}`,
       embeds: [],

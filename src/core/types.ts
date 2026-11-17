@@ -16,6 +16,7 @@ export interface Meetup {
   hostId: string;
   name: string;
   description: string;
+  /** 0 means no limit. */
   capacity: number;
   /** Epoch ms (UTC). */
   startAt: number;

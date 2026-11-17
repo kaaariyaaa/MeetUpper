@@ -4,6 +4,11 @@ import { countApproved, listCohosts, listParticipants } from "./meetup.ts";
 import { discordTimestamp } from "./time.ts";
 import type { Meetup, Participant } from "./types.ts";
 
+/** Capacity 0 means no limit. */
+export function capacityLabel(capacity: number): string {
+  return capacity > 0 ? `${capacity}人` : "定員なし";
+}
+
 const MODE_LABEL = { PUBLIC: "Public", PRIVATE: "Private" } as const;
 const APPROVAL_LABEL = { HOST: "主催者承認", VOTE: "参加者投票" } as const;
 const STATE_LABEL = { ACTIVE: "ACTIVE", ARCHIVED: "ARCHIVED", CANCELLED: "CANCELLED" } as const;
@@ -17,7 +22,7 @@ export function meetupEmbed(meetup: Meetup, options: { includeMeetingPlace?: boo
     .setDescription(meetup.description || "説明はありません。")
     .addFields(
       { name: "日時", value: discordTimestamp(meetup.startAt), inline: true },
-      { name: "定員", value: `${meetup.capacity}人（確定 ${approved}人）`, inline: true },
+      { name: "定員", value: `${capacityLabel(meetup.capacity)}（確定 ${approved}人）`, inline: true },
       { name: "公開モード", value: MODE_LABEL[meetup.mode], inline: true },
       { name: "承認方式", value: approvalLabel(meetup), inline: true },
       { name: "状態", value: STATE_LABEL[meetup.state], inline: true },

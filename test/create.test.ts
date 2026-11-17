@@ -21,9 +21,9 @@ test("create/list/show subcommands are registered", () => {
   const options = create?.builder.toJSON().options ?? [];
   expect(options.map((option) => option.name)).toEqual([
     "name",
-    "capacity",
     "start",
     "mode",
+    "capacity",
     "description",
     "meeting-time",
     "meeting-place",
@@ -32,9 +32,9 @@ test("create/list/show subcommands are registered", () => {
     "cohosts",
     "event",
   ]);
+  // Discord requires every required option to precede all optional options.
   expect(options.filter((option) => option.required).map((option) => option.name)).toEqual([
     "name",
-    "capacity",
     "start",
     "mode",
   ]);
