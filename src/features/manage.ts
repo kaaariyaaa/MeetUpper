@@ -97,6 +97,11 @@ function requireActive(meetup: Meetup): void {
   if (meetup.state !== "ACTIVE") throw new Error("ACTIVE のMeetUpのみ操作できます。");
 }
 
+/** ACTIVE and CANCELLED meetups can be archived; ARCHIVED is final. */
+function requireArchivable(meetup: Meetup): void {
+  if (meetup.state === "ARCHIVED") throw new Error("アーカイブ済みのMeetUpは操作できません。");
+}
+
 /** Channel notice restricted to the meetup channel audience (host, cohosts, approved). */
 async function notifyChannel(guild: Guild, meetupId: number, content: string | undefined): Promise<void> {
   const meetup = getMeetup(meetupId);
@@ -458,7 +463,7 @@ subcommand(
     await runCommand(interaction, async (guild) => {
       const meetup = resolveTargetMeetup(guild, interaction);
       requireManage(meetup, interaction.user.id);
-      requireActive(meetup);
+      requireArchivable(meetup);
 
       const embed = new EmbedBuilder()
         .setTitle("アーカイブしますか？")
@@ -510,7 +515,7 @@ button(/^manage:confirm-archive:(\d+)$/, async (interaction, args) => {
   await runButton(interaction, async (guild) => {
     const meetup = resolveMeetup(guild, Number(args[0]));
     requireManage(meetup, interaction.user.id);
-    requireActive(meetup);
+    requireArchivable(meetup);
 
     archiveMeetup(meetup);
     const updated = getMeetup(meetup.id)!;

@@ -8,9 +8,8 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 
 const { findButton, getSubcommands } = await import("../src/core/registry.ts");
-const { createMeetup, getParticipant, setParticipantState, updateMeetup } = await import(
-  "../src/core/meetup.ts"
-);
+const { cancelMeetup, createMeetup, getMeetup, getParticipant, setParticipantState, updateMeetup } =
+  await import("../src/core/meetup.ts");
 const { meetupFromChannel } = await import("../src/core/discord.ts");
 await import("../src/features/manage.ts");
 
@@ -176,4 +175,40 @@ test("kick removes an approved participant, revokes access and announces it", as
   expect(getParticipant(meetup.id, "u-kick")?.state).toBe("KICKED");
   expect(deleted).toContain("u-kick");
   expect(JSON.stringify(sent)).toContain("退出させられました");
+});
+
+test("cancelled meetups can still be archived", async () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "中止済みアーカイブ",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  cancelMeetup(meetup);
+
+  const updated: unknown[] = [];
+  const interaction = {
+    guild: { id: "g1", channels: { fetch: async () => null } },
+    user: { id: "host" },
+    client: {},
+    update: async (payload: unknown) => {
+      updated.push(payload);
+    },
+  };
+
+  await findButton(`manage:confirm-archive:${meetup.id}`)!.handler(
+    interaction as never,
+    [`${meetup.id}`],
+  );
+
+  expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
+  expect(JSON.stringify(updated)).toContain("アーカイブしました");
 });

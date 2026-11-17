@@ -17,7 +17,7 @@
 | `/meetupper members [meetup]` | 主催者・共同主催者 | 参加者と状態の一覧を表示する |
 | `/meetupper cohost <user> <add\|remove> [meetup]` | 主催者 | 共同主催者を追加・削除する |
 | `/meetupper host <user> [meetup]` | 主催者 | 主催者を変更する |
-| `/meetupper archive [meetup]` | 主催者・共同主催者 | 確認のうえアーカイブする |
+| `/meetupper archive [meetup]` | 主催者・共同主催者 | 確認のうえアーカイブする（ACTIVE と中止済みが対象。アーカイブ済みは不可） |
 | `/meetupper cancel [meetup]` | 主催者 | 確認のうえMeetUpを中止する |
 | `/meetupper remind [meetup]` | 主催者・共同主催者 | 参加確定者に今すぐリマインドを送る |
 
