@@ -31,6 +31,7 @@ test("create/list/show subcommands are registered", () => {
     "required-votes",
     "cohosts",
     "event",
+    "reminder",
   ]);
   // Discord requires every required option to precede all optional options.
   expect(options.filter((option) => option.required).map((option) => option.name)).toEqual([

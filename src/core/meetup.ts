@@ -1,4 +1,4 @@
-import { db, toMeetup, toParticipant, toInviteRequest, toReminder } from "../db.ts";
+import { db, toMeetup, toParticipant, toInviteRequest } from "../db.ts";
 import type {
   ApprovalMode,
   InviteRequest,
@@ -8,9 +8,8 @@ import type {
   MeetupState,
   Participant,
   ParticipantState,
-  Reminder,
 } from "./types.ts";
-import { config } from "../config.ts";
+import { initReminderSettings, stopRemindersForMeetup } from "./reminders.ts";
 
 export interface CreateMeetupInput {
   guildId: string;
@@ -25,6 +24,8 @@ export interface CreateMeetupInput {
   approvalMode: ApprovalMode;
   requiredVotes: number;
   eventEnabled: boolean;
+  /** Automatic reminders are enabled unless explicitly disabled. */
+  reminderEnabled?: boolean;
 }
 
 export function createMeetup(input: CreateMeetupInput): Meetup {
@@ -53,8 +54,15 @@ export function createMeetup(input: CreateMeetupInput): Meetup {
       now,
     ) as Parameters<typeof toMeetup>[0];
   const meetup = toMeetup(row);
-  scheduleReminders(meetup.id, meetup.startAt);
+  initReminderSettings(meetup.id, input.reminderEnabled ?? true);
   return meetup;
+}
+
+/** New/changed meeting times must be future and not later than the start time. */
+export function validateMeetingTime(startAt: number, meetingAt: number | null, now = Date.now()): void {
+  if (meetingAt === null) return;
+  if (meetingAt > startAt) throw new Error("集合時間は開催日時より後に設定できません。");
+  if (meetingAt <= now) throw new Error("集合時間には未来の日時を指定してください。");
 }
 
 export function deleteMeetup(id: number): void {
@@ -318,35 +326,6 @@ export function listPendingInviteRequests(meetupId: number): InviteRequest[] {
   return rows.map(toInviteRequest);
 }
 
-/* --- reminders --- */
-
-export function scheduleReminders(meetupId: number, startAt: number, now = Date.now()): void {
-  for (const offset of config.reminderOffsets) {
-    const remindAt = startAt - offset.seconds * 1000;
-    if (remindAt <= now) continue;
-    db.query("INSERT OR IGNORE INTO reminders (meetup_id, kind, remind_at) VALUES (?, ?, ?)").run(
-      meetupId,
-      offset.kind,
-      remindAt,
-    );
-  }
-}
-
-export function dueReminders(now = Date.now()): Reminder[] {
-  const rows = db
-    .query("SELECT * FROM reminders WHERE sent_at IS NULL AND remind_at <= ? ORDER BY remind_at ASC")
-    .all(now) as Parameters<typeof toReminder>[0][];
-  return rows.map(toReminder);
-}
-
-export function markReminderSent(meetupId: number, kind: string): void {
-  db.query("UPDATE reminders SET sent_at = ? WHERE meetup_id = ? AND kind = ?").run(Date.now(), meetupId, kind);
-}
-
-export function deleteReminders(meetupId: number): void {
-  db.query("DELETE FROM reminders WHERE meetup_id = ?").run(meetupId);
-}
-
 /* --- lifecycle --- */
 
 export interface TransitionResult {
@@ -356,13 +335,13 @@ export interface TransitionResult {
 
 export function archiveMeetup(meetup: Meetup): Meetup {
   setMeetupState(meetup.id, "ARCHIVED");
-  deleteReminders(meetup.id);
+  stopRemindersForMeetup(meetup.id, "MeetUpがアーカイブされたため停止");
   return getMeetup(meetup.id)!;
 }
 
 export function cancelMeetup(meetup: Meetup): Meetup {
   setMeetupState(meetup.id, "CANCELLED");
-  deleteReminders(meetup.id);
+  stopRemindersForMeetup(meetup.id, "MeetUpが中止されたため停止");
   return getMeetup(meetup.id)!;
 }
 

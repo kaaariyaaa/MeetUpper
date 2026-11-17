@@ -2,7 +2,15 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "./config.ts";
-import type { Meetup, Participant, InviteRequest, Reminder } from "./core/types.ts";
+import type {
+  Meetup,
+  Participant,
+  InviteRequest,
+  ReminderSettings,
+  ReminderSchedule,
+  ReminderHistory,
+  ReminderFailure,
+} from "./core/types.ts";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -70,15 +78,76 @@ CREATE TABLE IF NOT EXISTS invite_requests (
   decided_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS reminders (
-  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  remind_at INTEGER NOT NULL,
-  sent_at INTEGER,
-  PRIMARY KEY (meetup_id, kind)
+DROP TABLE IF EXISTS reminders;
+
+CREATE TABLE IF NOT EXISTS reminder_settings (
+  meetup_id INTEGER PRIMARY KEY REFERENCES meetups(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (remind_at) WHERE sent_at IS NULL;
+CREATE TABLE IF NOT EXISTS reminder_offsets (
+  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
+  offset_seconds INTEGER NOT NULL,
+  PRIMARY KEY (meetup_id, offset_seconds)
+);
+
+CREATE TABLE IF NOT EXISTS reminder_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
+  base_at INTEGER NOT NULL,
+  offset_seconds INTEGER NOT NULL,
+  scheduled_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_retry_at INTEGER,
+  last_error TEXT,
+  skip_reason TEXT,
+  claimed_at INTEGER,
+  sent_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (meetup_id, base_at, offset_seconds)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_schedules_due
+  ON reminder_schedules (scheduled_at) WHERE status IN ('PENDING', 'SENDING');
+
+CREATE TABLE IF NOT EXISTS reminder_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
+  schedule_id INTEGER,
+  base_at INTEGER NOT NULL,
+  offset_seconds INTEGER NOT NULL,
+  scheduled_at INTEGER NOT NULL,
+  sent_at INTEGER,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reminder_history_once
+  ON reminder_history (schedule_id, status) WHERE schedule_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_reminder_history_meetup
+  ON reminder_history (meetup_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS reminder_failures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
+  schedule_id INTEGER NOT NULL,
+  scheduled_at INTEGER NOT NULL,
+  failed_at INTEGER NOT NULL,
+  dm_sent INTEGER NOT NULL DEFAULT 0,
+  dm_failed INTEGER NOT NULL DEFAULT 0,
+  dm_status TEXT NOT NULL DEFAULT 'PENDING',
+  channel_status TEXT NOT NULL DEFAULT 'PENDING',
+  channel_error TEXT,
+  warning_deadline INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `);
 
 interface MeetupRow {
@@ -175,15 +244,126 @@ export function toInviteRequest(row: InviteRequestRow): InviteRequest {
   };
 }
 
-interface ReminderRow {
+interface ReminderSettingsRow {
   meetup_id: number;
-  kind: string;
-  remind_at: number;
+  enabled: number;
+  version: number;
+  updated_at: number;
+}
+
+export function toReminderSettings(row: ReminderSettingsRow): ReminderSettings {
+  return {
+    meetupId: row.meetup_id,
+    enabled: row.enabled === 1,
+    version: row.version,
+    updatedAt: row.updated_at,
+  };
+}
+
+interface ReminderScheduleRow {
+  id: number;
+  meetup_id: number;
+  base_at: number;
+  offset_seconds: number;
+  scheduled_at: number;
+  status: string;
+  attempts: number;
+  next_retry_at: number | null;
+  last_error: string | null;
+  skip_reason: string | null;
+  claimed_at: number | null;
   sent_at: number | null;
+  created_at: number;
+  updated_at: number;
 }
 
-export function toReminder(row: ReminderRow): Reminder {
-  return { meetupId: row.meetup_id, kind: row.kind, remindAt: row.remind_at, sentAt: row.sent_at };
+export function toReminderSchedule(row: ReminderScheduleRow): ReminderSchedule {
+  return {
+    id: row.id,
+    meetupId: row.meetup_id,
+    baseAt: row.base_at,
+    offsetSeconds: row.offset_seconds,
+    scheduledAt: row.scheduled_at,
+    status: row.status as ReminderSchedule["status"],
+    attempts: row.attempts,
+    nextRetryAt: row.next_retry_at,
+    lastError: row.last_error,
+    skipReason: row.skip_reason,
+    claimedAt: row.claimed_at,
+    sentAt: row.sent_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-export type { MeetupRow, ParticipantRow, InviteRequestRow, ReminderRow };
+interface ReminderHistoryRow {
+  id: number;
+  meetup_id: number;
+  schedule_id: number | null;
+  base_at: number;
+  offset_seconds: number;
+  scheduled_at: number;
+  sent_at: number | null;
+  status: string;
+  reason: string | null;
+  created_at: number;
+}
+
+export function toReminderHistory(row: ReminderHistoryRow): ReminderHistory {
+  return {
+    id: row.id,
+    meetupId: row.meetup_id,
+    scheduleId: row.schedule_id,
+    baseAt: row.base_at,
+    offsetSeconds: row.offset_seconds,
+    scheduledAt: row.scheduled_at,
+    sentAt: row.sent_at,
+    status: row.status as ReminderHistory["status"],
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
+}
+
+interface ReminderFailureRow {
+  id: number;
+  meetup_id: number;
+  schedule_id: number;
+  scheduled_at: number;
+  failed_at: number;
+  dm_sent: number;
+  dm_failed: number;
+  dm_status: string;
+  channel_status: string;
+  channel_error: string | null;
+  warning_deadline: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function toReminderFailure(row: ReminderFailureRow): ReminderFailure {
+  return {
+    id: row.id,
+    meetupId: row.meetup_id,
+    scheduleId: row.schedule_id,
+    scheduledAt: row.scheduled_at,
+    failedAt: row.failed_at,
+    dmSent: row.dm_sent,
+    dmFailed: row.dm_failed,
+    dmStatus: row.dm_status as ReminderFailure["dmStatus"],
+    channelStatus: row.channel_status as ReminderFailure["channelStatus"],
+    channelError: row.channel_error,
+    warningDeadline: row.warning_deadline,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export type {
+  MeetupRow,
+  ParticipantRow,
+  InviteRequestRow,
+  ReminderSettingsRow,
+  ReminderScheduleRow,
+  ReminderHistoryRow,
+  ReminderFailureRow,
+};

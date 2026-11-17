@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder, type Guild } from "discord.js";
 import { config } from "./config.ts";
 import { replyError } from "./core/discord.ts";
-import { findButton, findModal, getSubcommands, runSetups } from "./core/registry.ts";
+import { findButton, findModal, findSelectMenu, getSubcommands, runSetups } from "./core/registry.ts";
 import { loadFeatures } from "./features/index.ts";
 
 if (!config.token) {
@@ -66,6 +66,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
     if (interaction.isModalSubmit()) {
       const routed = findModal(interaction.customId);
+      if (!routed) return;
+      await routed.handler(interaction, routed.args);
+      return;
+    }
+    if (interaction.isStringSelectMenu()) {
+      const routed = findSelectMenu(interaction.customId);
       if (!routed) return;
       await routed.handler(interaction, routed.args);
     }

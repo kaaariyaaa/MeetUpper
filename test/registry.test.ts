@@ -26,7 +26,7 @@ test("all feature modules register their subcommands", () => {
     "leave",
     "list",
     "members",
-    "remind",
+    "reminder",
     "show",
   ]);
 });

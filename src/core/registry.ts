@@ -4,11 +4,13 @@ import type {
   Client,
   ModalSubmitInteraction,
   SlashCommandSubcommandBuilder,
+  StringSelectMenuInteraction,
 } from "discord.js";
 
 export type SubcommandExecute = (interaction: ChatInputCommandInteraction) => Promise<unknown>;
 export type ButtonExecute = (interaction: ButtonInteraction, args: string[]) => Promise<unknown>;
 export type ModalExecute = (interaction: ModalSubmitInteraction, args: string[]) => Promise<unknown>;
+export type SelectMenuExecute = (interaction: StringSelectMenuInteraction, args: string[]) => Promise<unknown>;
 export type Setup = (client: Client) => void | Promise<void>;
 
 interface SubcommandEntry {
@@ -25,6 +27,7 @@ interface RoutedHandler<T> {
 const subcommands = new Map<string, SubcommandEntry>();
 const buttonHandlers: RoutedHandler<ButtonExecute>[] = [];
 const modalHandlers: RoutedHandler<ModalExecute>[] = [];
+const selectMenuHandlers: RoutedHandler<SelectMenuExecute>[] = [];
 const setups: Setup[] = [];
 
 export function subcommand(builder: SlashCommandSubcommandBuilder, execute: SubcommandExecute): void {
@@ -38,6 +41,10 @@ export function button(pattern: RegExp, execute: ButtonExecute): void {
 
 export function modal(pattern: RegExp, execute: ModalExecute): void {
   modalHandlers.push({ pattern, execute });
+}
+
+export function selectMenu(pattern: RegExp, execute: SelectMenuExecute): void {
+  selectMenuHandlers.push({ pattern, execute });
 }
 
 export function setup(fn: Setup): void {
@@ -62,6 +69,16 @@ export function findModal(customId: string):
   | { handler: ModalExecute; args: string[] }
   | undefined {
   for (const entry of modalHandlers) {
+    const match = customId.match(entry.pattern);
+    if (match) return { handler: entry.execute, args: match.slice(1) };
+  }
+  return undefined;
+}
+
+export function findSelectMenu(customId: string):
+  | { handler: SelectMenuExecute; args: string[] }
+  | undefined {
+  for (const entry of selectMenuHandlers) {
     const match = customId.match(entry.pattern);
     if (match) return { handler: entry.execute, args: match.slice(1) };
   }

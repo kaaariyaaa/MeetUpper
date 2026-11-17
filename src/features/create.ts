@@ -29,6 +29,7 @@ import {
   getParticipant,
   listMeetups,
   updateMeetup,
+  validateMeetingTime,
 } from "../core/meetup.ts";
 import { subcommand } from "../core/registry.ts";
 import { discordTimestamp, parseDateTime } from "../core/time.ts";
@@ -110,6 +111,9 @@ subcommand(
       option
         .setName("event")
         .setDescription("Discordスケジュールイベントを作成する (Publicのみ)"),
+    )
+    .addBooleanOption((option) =>
+      option.setName("reminder").setDescription("自動リマインダーを有効にする（既定: ON）"),
     ),
   async (interaction) => {
     try {
@@ -136,6 +140,14 @@ subcommand(
         await replyEphemeral(interaction, `集合時間を解析できませんでした。\n${dateTimeHint()}`);
         return;
       }
+      if (meetingAt !== null) {
+        try {
+          validateMeetingTime(startAt, meetingAt);
+        } catch (error) {
+          await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+          return;
+        }
+      }
 
       const mode = interaction.options.getString("mode", true) as MeetupMode;
       const approvalInput = interaction.options.getString("approval") as ApprovalMode | null;
@@ -157,6 +169,7 @@ subcommand(
 
       const eventRequested = interaction.options.getBoolean("event") ?? false;
       const eventEnabled = mode === "PUBLIC" && eventRequested;
+      const reminderEnabled = interaction.options.getBoolean("reminder") ?? true;
       const meetup = createMeetup({
         guildId: guild.id,
         hostId: interaction.user.id,
@@ -170,6 +183,7 @@ subcommand(
         approvalMode,
         requiredVotes,
         eventEnabled,
+        reminderEnabled,
       });
 
       const cohostInput = interaction.options.getString("cohosts");

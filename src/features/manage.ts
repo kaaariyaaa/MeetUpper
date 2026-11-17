@@ -15,16 +15,15 @@ import {
   canManage,
   cancelMeetup,
   countApproved,
-  deleteReminders,
   getMeetup,
   getParticipant,
   isHost,
   listCohosts,
   listParticipants,
   removeCohost,
-  scheduleReminders,
   setParticipantState,
   updateMeetup,
+  validateMeetingTime,
 } from "../core/meetup.ts";
 import {
   archiveChannel,
@@ -40,6 +39,7 @@ import {
   tryDM,
 } from "../core/discord.ts";
 import { cancelEvent, updateEvent } from "../core/events.ts";
+import { recalculateSchedules } from "../core/reminders.ts";
 import { parseDateTime } from "../core/time.ts";
 import {
   applyButtonRow,
@@ -186,10 +186,14 @@ subcommand(
         if (meetingAt === null) {
           throw new Error(`集合時間の形式が正しくありません。${dateTimeHint()}`);
         }
+        validateMeetingTime(meetup.startAt, meetingAt);
         fields.meetingAt = meetingAt;
       }
       if (placeInput) fields.meetingPlace = placeInput;
       updateMeetup(meetup.id, fields);
+      if (fields.meetingAt !== undefined) {
+        recalculateSchedules(meetup.id, { resetAll: true });
+      }
 
       const approved = listParticipants(meetup.id, ["APPROVED"]);
       const mentions = approved.map((participant) => `<@${participant.userId}>`).join(" ");
@@ -441,14 +445,16 @@ subcommand(
       if (startInput) {
         const startAt = parseDateTime(startInput);
         if (startAt === null) throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
+        if (meetup.meetingAt !== null && startAt < meetup.meetingAt) {
+          throw new Error("開催日時は集合時間以降に設定してください。");
+        }
         fields.startAt = startAt;
       }
 
       updateMeetup(meetup.id, fields);
       const updated = getMeetup(meetup.id)!;
       if (fields.startAt !== undefined) {
-        deleteReminders(updated.id);
-        scheduleReminders(updated.id, updated.startAt);
+        recalculateSchedules(updated.id, { resetAll: true });
       }
       if (updated.mode === "PUBLIC" && updated.eventId) await updateEvent(guild, updated);
       if (updated.forumThreadId) {

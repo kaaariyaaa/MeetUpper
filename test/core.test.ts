@@ -14,9 +14,6 @@ const {
   countApproved,
   addVote,
   countVotes,
-  scheduleReminders,
-  dueReminders,
-  markReminderSent,
   archiveMeetup,
   updateMeetup,
 } = await import("../src/core/meetup.ts");
@@ -57,13 +54,6 @@ test("participant states, votes and reminders", () => {
   expect(addVote(meetup.id, "u2", "u3")).toBe(2);
   expect(countVotes(meetup.id, "u2")).toBe(2);
 
-  const remindersDueAtStart = () => dueReminders(meetup.startAt).filter((r) => r.meetupId === meetup.id);
-  const remindersDueNow = () => dueReminders(Date.now()).filter((r) => r.meetupId === meetup.id);
-  expect(remindersDueNow().length).toBe(0);
-  expect(remindersDueAtStart().length).toBe(3);
-  markReminderSent(meetup.id, "1d");
-  expect(remindersDueAtStart().length).toBe(2);
-
   // A re-application starts with zero votes, and a former participant loses their vote.
   setParticipantState(meetup.id, "u2", "APPLIED");
   addVote(meetup.id, "u2", "u1");
@@ -86,5 +76,4 @@ test("participant states, votes and reminders", () => {
 
   archiveMeetup(meetup);
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
-  expect(remindersDueAtStart().length).toBe(0);
 });

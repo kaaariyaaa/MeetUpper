@@ -60,9 +60,60 @@ export interface InviteRequest {
   decidedAt: number | null;
 }
 
-export interface Reminder {
+export type ReminderStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
+export type ReminderHistoryStatus = "SENT" | "FAILED" | "SKIPPED";
+export type FailureDmStatus = "PENDING" | "SENT" | "PARTIAL" | "FAILED" | "SKIPPED";
+export type FailureChannelStatus = "PENDING" | "SENT" | "EXPIRED" | "SKIPPED";
+
+export interface ReminderSettings {
   meetupId: number;
-  kind: string;
-  remindAt: number;
+  enabled: boolean;
+  version: number;
+  updatedAt: number;
+}
+
+export interface ReminderSchedule {
+  id: number;
+  meetupId: number;
+  baseAt: number;
+  offsetSeconds: number;
+  scheduledAt: number;
+  status: ReminderStatus;
+  attempts: number;
+  nextRetryAt: number | null;
+  lastError: string | null;
+  skipReason: string | null;
+  claimedAt: number | null;
   sentAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ReminderHistory {
+  id: number;
+  meetupId: number;
+  scheduleId: number | null;
+  baseAt: number;
+  offsetSeconds: number;
+  scheduledAt: number;
+  sentAt: number | null;
+  status: ReminderHistoryStatus;
+  reason: string | null;
+  createdAt: number;
+}
+
+export interface ReminderFailure {
+  id: number;
+  meetupId: number;
+  scheduleId: number;
+  scheduledAt: number;
+  failedAt: number;
+  dmSent: number;
+  dmFailed: number;
+  dmStatus: FailureDmStatus;
+  channelStatus: FailureChannelStatus;
+  channelError: string | null;
+  warningDeadline: number;
+  createdAt: number;
+  updatedAt: number;
 }
