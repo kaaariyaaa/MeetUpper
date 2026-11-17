@@ -16,7 +16,7 @@ MeetUpper は、Discord サーバーでオフ会の募集・招待から参加�
 | | Public | Private |
 | --- | --- | --- |
 | 募集方法 | `オフ会募集` フォーラムに掲載 | 招待されたメンバーに案内 |
-| 参加方法 | 募集投稿のボタンまたは `/meetup apply` から申請 | 招待に回答して参加。招待を辞退した人は再申請も可能 |
+| 参加方法 | 募集投稿のボタンまたは `/meetupper apply` から申請 | 招待に回答して参加。招待を辞退した人は再申請も可能 |
 | 参加の決定 | 主催者・共同主催者の承認、または参加確定者による投票 | 招待への参加回答で確定。辞退後の再申請には主催者側の承認が必要 |
 | Discord スケジュールイベント | 作成時に `event: true` を指定すると連携 | 連携しない |
 
@@ -60,17 +60,17 @@ cp .env.example .env
 bun run start
 ```
 
-起動すると、Bot が参加している各サーバーに `/meetup` コマンドが登録されます。
+起動すると、Bot が参加している各サーバーに `/meetupper` コマンドが登録されます。
 
 ### 4. Discord サーバーを初期化
 
 サーバー管理者が Discord 上で次のコマンドを実行します。
 
 ```text
-/meetup init
+/meetupper init
 ```
 
-`MeetUp` カテゴリ、`オフ会募集` フォーラム、`招待` チャンネルが作成されます。同名のチャンネルがあれば再利用されます。その後、サーバーメンバーは `/meetup create` でオフ会を作成できます。
+`MeetUp` カテゴリ、`オフ会募集` フォーラム、`招待` チャンネルが作成されます。同名のチャンネルがあれば再利用されます。その後、サーバーメンバーは `/meetupper create` でオフ会を作成できます。
 
 Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は [docs/SETUP.md](docs/SETUP.md) に記載しています。
 
@@ -78,21 +78,21 @@ Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は 
 
 | コマンド | 用途 |
 | --- | --- |
-| `/meetup create` | オフ会を作成する |
-| `/meetup list` | 閲覧できる開催中のオフ会を一覧表示する |
-| `/meetup show` | オフ会の詳細を確認する |
-| `/meetup apply` | オフ会への参加を申請する |
-| `/meetup invite` | メンバーを招待する |
-| `/meetup kick` | 参加確定者をオフ会から退出させる |
-| `/meetup edit` | オフ会名・説明・定員・開催日時を変更する |
-| `/meetup info` | 集合時間・集合場所を変更する |
-| `/meetup remind` | 参加確定者へリマインドを送る |
-| `/meetup archive` | オフ会を手動でアーカイブする |
-| `/meetup cancel` | オフ会を中止する |
+| `/meetupper create` | オフ会を作成する |
+| `/meetupper list` | 閲覧できる開催中のオフ会を一覧表示する |
+| `/meetupper show` | オフ会の詳細を確認する |
+| `/meetupper apply` | オフ会への参加を申請する |
+| `/meetupper invite` | メンバーを招待する |
+| `/meetupper kick` | 参加確定者をオフ会から退出させる |
+| `/meetupper edit` | オフ会名・説明・定員・開催日時を変更する |
+| `/meetupper info` | 集合時間・集合場所を変更する |
+| `/meetupper remind` | 参加確定者へリマインドを送る |
+| `/meetupper archive` | オフ会を手動でアーカイブする |
+| `/meetupper cancel` | オフ会を中止する |
 
 `meetup`（オフ会ID）は、オフ会の専用チャンネルや募集スレッド内で実行する場合は省略できます。
 
-`/meetup create` では `name`（名前）、`start`（開催日時）、`mode`（公開形式）が必須です。`capacity`（定員）は任意で、省略すると定員なしになります。開催日時は `YYYY-MM-DD HH:mm` 形式、またはタイムゾーンのオフセットを含む ISO 8601 形式で入力できます。前者は `DEFAULT_TIMEZONE` に従って解釈されます。
+`/meetupper create` では `name`（名前）、`start`（開催日時）、`mode`（公開形式）が必須です。`capacity`（定員）は任意で、省略すると定員なしになります。開催日時は `YYYY-MM-DD HH:mm` 形式、またはタイムゾーンのオフセットを含む ISO 8601 形式で入力できます。前者は `DEFAULT_TIMEZONE` に従って解釈されます。
 
 Public で参加者投票を選ぶ場合は `approval: VOTE` と `required-votes` を指定します。投票できるのは参加確定者だけなので、最初の参加確定者は主催者側から招待する必要があります。Discord スケジュールイベント連携は既定で無効です。
 

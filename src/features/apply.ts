@@ -166,7 +166,7 @@ function resultEmbed(
     );
 }
 
-/** Handles both the /meetup apply subcommand and the forum post's apply button. */
+/** Handles both the /meetupper apply subcommand and the forum post's apply button. */
 export async function submitApplication(interaction: RepliableInteraction, meetupId: number): Promise<void> {
   try {
     const guild = interaction.guild;

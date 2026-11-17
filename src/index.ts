@@ -12,7 +12,7 @@ if (!config.token) {
 await loadFeatures();
 
 const meetupCommand = new SlashCommandBuilder()
-  .setName("meetup")
+  .setName("meetupper")
   .setDescription("オフ会の作成・参加・運営を行います")
   .setDMPermission(false);
 for (const entry of getSubcommands()) meetupCommand.addSubcommand(entry.builder);
@@ -22,7 +22,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 async function registerGuildCommands(guild: Guild): Promise<void> {
   await guild.commands.set([commandJson]);
-  console.log(`スラッシュコマンド /meetup を登録しました: ${guild.name} (${guild.id})`);
+  console.log(`スラッシュコマンド /meetupper を登録しました: ${guild.name} (${guild.id})`);
 }
 
 // Register listeners (channel-delete recovery, reminder timer) before the gateway connects.
@@ -48,7 +48,7 @@ client.on(Events.GuildCreate, async (guild) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName !== "meetup") return;
+      if (interaction.commandName !== "meetupper") return;
       const name = interaction.options.getSubcommand(false);
       const entry = name ? getSubcommands().find((item) => item.name === name) : undefined;
       if (!entry) {

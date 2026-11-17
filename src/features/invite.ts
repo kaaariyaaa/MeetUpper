@@ -337,7 +337,7 @@ button(/^invite:decline:(\d+)$/, async (interaction, args) => {
     await interaction.deferUpdate();
     setParticipantState(meetup.id, interaction.user.id, "DECLINED");
     await interaction.editReply({
-      embeds: [messageEmbed(`招待を辞退しました。後から参加申請する場合は /meetup apply meetup:${meetup.id} を実行してください。`)],
+      embeds: [messageEmbed(`招待を辞退しました。後から参加申請する場合は /meetupper apply meetup:${meetup.id} を実行してください。`)],
       components: [],
     });
     await deleteThread(privateThreadOf(interaction));

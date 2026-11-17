@@ -39,7 +39,7 @@ export interface GuildLayout {
 }
 
 const SETUP_REQUIRED_MESSAGE =
-  "サーバーのセットアップが完了していません。管理者が `/meetup init` を実行してください。";
+  "サーバーのセットアップが完了していません。管理者が `/meetupper init` を実行してください。";
 
 /** Discord hides channels the bot cannot view (name becomes "___hidden___"), so check by permission. */
 function botCanView(guild: Guild, channel: GuildChannel): boolean {
@@ -52,7 +52,7 @@ function botCanView(guild: Guild, channel: GuildChannel): boolean {
 function layoutPermissionGuidance(): string {
   return [
     `Bot が ${config.categoryName} カテゴリを閲覧できません。`,
-    `サーバー管理者は ${config.categoryName} カテゴリの権限で Bot に「チャンネルを見る」「チャンネルを管理」を許可してから、\`/meetup init\` を再実行してください。`,
+    `サーバー管理者は ${config.categoryName} カテゴリの権限で Bot に「チャンネルを見る」「チャンネルを管理」を許可してから、\`/meetupper init\` を再実行してください。`,
   ].join("\n");
 }
 
@@ -248,7 +248,7 @@ function requireLayoutPermissions(guild: Guild): void {
   if (missing.size > 0) {
     throw new Error(
       `Bot に不足している権限があります: ${[...missing].join(", ")}。` +
-        "サーバー設定のロールで MeetUpper に付与してから、もう一度 /meetup init を実行してください。",
+        "サーバー設定のロールで MeetUpper に付与してから、もう一度 /meetupper init を実行してください。",
     );
   }
 }

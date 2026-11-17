@@ -117,7 +117,7 @@ test("init puts the layout rules on the category and creates inheriting channels
   expect(created[1]!.permissionOverwrites).toBeUndefined();
   expect(created[2]!.permissionOverwrites).toBeUndefined();
   expect(await isLayoutInitialized(guild)).toBe(true);
-  expect(setupRequiredMessage(guild)).toContain("/meetup init");
+  expect(setupRequiredMessage(guild)).toContain("/meetupper init");
 });
 
 test("existing layout channels drop per-channel overwrites and inherit the category", async () => {
