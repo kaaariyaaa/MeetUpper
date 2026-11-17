@@ -8,17 +8,19 @@ import {
   createFailureRecord,
   expireChannelWarnings,
   finishSchedule,
+  getFailureBySchedule,
   getReminderSettings,
   listDueSchedules,
   listExpiredSchedules,
+  listFailedSchedulesWithoutFailure,
   listPendingChannelWarnings,
   listStaleSending,
   pruneReminderHistory,
-  recalculateSchedules,
   reminderBaseAt,
   remainingMinutes,
   resetSendingToPending,
   scheduleRetry,
+  updateFailureDmStatus,
   updateFailureChannelStatus,
 } from "./reminders.ts";
 import { discordTimestamp } from "./time.ts";
@@ -109,6 +111,19 @@ async function notifyFailure(
   reason: string,
   now: number,
 ): Promise<void> {
+  let failure = getFailureBySchedule(schedule.id);
+  if (!failure) {
+    failure = createFailureRecord({
+      meetupId: meetup.id,
+      scheduleId: schedule.id,
+      scheduledAt: schedule.scheduledAt,
+      failedAt: now,
+      error: reason,
+    });
+  } else if (failure.dmStatus !== "PENDING") {
+    return;
+  }
+
   const managers = [...new Set([meetup.hostId, ...listCohosts(meetup.id)])];
   const embed = failureEmbed(meetup, schedule, now, reason);
   let dmFailed = 0;
@@ -119,27 +134,17 @@ async function notifyFailure(
   }
   const dmStatus: "SENT" | "FAILED" | "PARTIAL" =
     dmFailed === 0 ? "SENT" : dmSent === 0 ? "FAILED" : "PARTIAL";
-  const failureBase = {
-    meetupId: meetup.id,
-    scheduleId: schedule.id,
-    scheduledAt: schedule.scheduledAt,
-    failedAt: now,
-    dmSent,
-    dmFailed,
-    dmStatus,
-    channelError: null as string | null,
-  };
+  updateFailureDmStatus(failure.id, dmSent, dmFailed, dmStatus, now);
 
   if (dmFailed === 0) {
-    createFailureRecord({ ...failureBase, channelStatus: "SKIPPED" }, now);
+    updateFailureChannelStatus(failure.id, "SKIPPED", null, now);
     return;
   }
 
   // DMに失敗した管理者がいる場合はチャンネル警告を1件だけ送る。送れなければ24時間保持する。
-  const provisional = createFailureRecord({ ...failureBase, channelStatus: "PENDING" }, now);
-  const warning = await trySendWarning(client, meetup, provisional, dmFailed);
-  if (warning.sent) updateFailureChannelStatus(provisional.id, "SENT", null, now);
-  else updateFailureChannelStatus(provisional.id, "PENDING", warning.error, now);
+  const warning = await trySendWarning(client, meetup, failure, dmFailed);
+  if (warning.sent) updateFailureChannelStatus(failure.id, "SENT", null, now);
+  else updateFailureChannelStatus(failure.id, "PENDING", warning.error, now);
 }
 
 async function sendReminder(
@@ -149,6 +154,11 @@ async function sendReminder(
   recipients: string[],
   now: number,
 ): Promise<void> {
+  const fresh = getMeetup(meetup.id);
+  if (!fresh || fresh.state !== "ACTIVE" || !getReminderSettings(meetup.id).enabled) {
+    finishSchedule(schedule.id, "SKIPPED", "送信直前に停止されたため送信しない", null, now);
+    return;
+  }
   const guild = client.guilds.cache.get(meetup.guildId);
   if (!guild) {
     resetSendingToPending(schedule.id, now);
@@ -175,12 +185,12 @@ async function sendReminder(
   const attempts = schedule.attempts + 1;
   const delay = REMINDER_RETRY_DELAYS_MS[attempts - 1];
   const baseAt = reminderBaseAt(meetup);
-  const retryAt = delay === undefined ? null : now + delay;
+  // Leave a scheduler tick of slack before the 15-minute hard stop.
+  const retryWindowEnd = schedule.scheduledAt + REMINDER_WINDOW_MS - 60_000;
+  const retryAt =
+    delay === undefined ? null : Math.min(now + delay, retryWindowEnd);
   const canRetry =
-    retryAt !== null &&
-    retryAt <= schedule.scheduledAt + REMINDER_WINDOW_MS &&
-    retryAt < baseAt &&
-    now < baseAt;
+    retryAt !== null && retryAt > now && retryAt <= retryWindowEnd && now < baseAt;
   if (canRetry && retryAt !== null) {
     scheduleRetry(schedule.id, attempts, retryAt, error, now);
     return;
@@ -190,19 +200,29 @@ async function sendReminder(
   await notifyFailure(client, meetup, schedule, error, now);
 }
 
-async function processDueMeetup(client: Client, meetupId: number, now: number): Promise<void> {
+async function processDueMeetup(
+  client: Client,
+  meetupId: number,
+  schedules: ReminderSchedule[],
+  now: number,
+): Promise<void> {
   const meetup = getMeetup(meetupId);
   if (!meetup) return;
   const settings = getReminderSettings(meetup.id);
   if (meetup.state !== "ACTIVE") {
-    for (const schedule of listDueSchedules(now).filter((s) => s.meetupId === meetupId)) {
+    for (const schedule of schedules) {
       finishSchedule(schedule.id, "SKIPPED", `MeetUpが${meetup.state}のため送信しない`, null, now);
     }
     return;
   }
-  if (!settings.enabled) return;
+  if (!settings.enabled) {
+    for (const schedule of schedules) {
+      finishSchedule(schedule.id, "SKIPPED", "自動通知がOFFのため送信しない", null, now);
+    }
+    return;
+  }
   if (now >= reminderBaseAt(meetup)) {
-    for (const schedule of listDueSchedules(now).filter((s) => s.meetupId === meetupId)) {
+    for (const schedule of schedules) {
       finishSchedule(schedule.id, "SKIPPED", "通知基準日時を過ぎたため送信しない", null, now);
     }
     return;
@@ -210,15 +230,13 @@ async function processDueMeetup(client: Client, meetupId: number, now: number): 
 
   const recipients = reminderRecipients(meetup);
   if (isOnlyHost(meetup, recipients)) {
-    for (const schedule of listDueSchedules(now).filter((s) => s.meetupId === meetupId)) {
+    for (const schedule of schedules) {
       finishSchedule(schedule.id, "SKIPPED", "通知対象者が主催者のみのため送信しない", null, now);
     }
     return;
   }
 
-  const due = listDueSchedules(now)
-    .filter((schedule) => schedule.meetupId === meetupId)
-    .sort((a, b) => b.scheduledAt - a.scheduledAt || b.id - a.id);
+  const due = [...schedules].sort((a, b) => b.scheduledAt - a.scheduledAt || b.id - a.id);
   const newest = due[0];
   if (!newest) return;
   for (const older of due.slice(1)) {
@@ -246,6 +264,7 @@ let ticking = false;
 /** Processes due/retrying reminders, stale sends and pending failure warnings. */
 export async function tickReminders(client: Client, now = Date.now()): Promise<void> {
   if (ticking) return;
+  if (typeof client.isReady === "function" && !client.isReady()) return;
   ticking = true;
   try {
     pruneReminderHistory(now);
@@ -266,10 +285,9 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
         resetSendingToPending(schedule.id, now);
         continue;
       }
-      const reason = "送信結果不明のまま期限切れ";
       if (meetup && meetup.state === "ACTIVE") {
-        finishSchedule(schedule.id, "FAILED", reason, null, now);
-        await notifyFailure(client, meetup, schedule, reason, now);
+        // Result is unknown, not a confirmed send failure; do not alarm managers.
+        finishSchedule(schedule.id, "SKIPPED", "送信結果不明のまま期限切れ", null, now);
       } else {
         finishSchedule(schedule.id, "SKIPPED", "MeetUpがACTIVEではない", null, now);
       }
@@ -279,9 +297,27 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
       finishSchedule(schedule.id, "SKIPPED", "通知時刻から15分を超えたため送信しない", null, now);
     }
 
-    const dueMeetupIds = [...new Set(listDueSchedules(now).map((schedule) => schedule.meetupId))];
-    for (const meetupId of dueMeetupIds) {
-      await processDueMeetup(client, meetupId, now);
+    // A crash between the FAILED update and the failure record is repaired here.
+    for (const schedule of listFailedSchedulesWithoutFailure()) {
+      const meetup = getMeetup(schedule.meetupId);
+      if (!meetup) continue;
+      await notifyFailure(
+        client,
+        meetup,
+        schedule,
+        schedule.lastError ?? "送信失敗",
+        schedule.updatedAt || now,
+      );
+    }
+
+    const dueByMeetup = new Map<number, ReminderSchedule[]>();
+    for (const schedule of listDueSchedules(now)) {
+      const list = dueByMeetup.get(schedule.meetupId) ?? [];
+      list.push(schedule);
+      dueByMeetup.set(schedule.meetupId, list);
+    }
+    for (const [meetupId, schedules] of dueByMeetup) {
+      await processDueMeetup(client, meetupId, schedules, now);
     }
 
     await processPendingWarnings(client, now);

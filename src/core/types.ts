@@ -112,6 +112,7 @@ export interface ReminderFailure {
   dmFailed: number;
   dmStatus: FailureDmStatus;
   channelStatus: FailureChannelStatus;
+  error: string | null;
   channelError: string | null;
   warningDeadline: number;
   createdAt: number;

@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS reminder_schedules (
 CREATE INDEX IF NOT EXISTS idx_reminder_schedules_due
   ON reminder_schedules (scheduled_at) WHERE status IN ('PENDING', 'SENDING');
 
+CREATE INDEX IF NOT EXISTS idx_reminder_schedules_sending
+  ON reminder_schedules (claimed_at) WHERE status = 'SENDING';
+
 CREATE TABLE IF NOT EXISTS reminder_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
@@ -133,6 +136,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_reminder_history_once
 CREATE INDEX IF NOT EXISTS idx_reminder_history_meetup
   ON reminder_history (meetup_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_reminder_history_created
+  ON reminder_history (created_at);
+
 CREATE TABLE IF NOT EXISTS reminder_failures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
@@ -143,12 +149,21 @@ CREATE TABLE IF NOT EXISTS reminder_failures (
   dm_failed INTEGER NOT NULL DEFAULT 0,
   dm_status TEXT NOT NULL DEFAULT 'PENDING',
   channel_status TEXT NOT NULL DEFAULT 'PENDING',
+  error TEXT,
   channel_error TEXT,
   warning_deadline INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_reminder_failures_warning
+  ON reminder_failures (channel_status, warning_deadline);
 `);
+
+const failureColumns = db.query("PRAGMA table_info(reminder_failures)").all() as { name: string }[];
+if (!failureColumns.some((column) => column.name === "error")) {
+  db.exec("ALTER TABLE reminder_failures ADD COLUMN error TEXT");
+}
 
 interface MeetupRow {
   id: number;
@@ -334,6 +349,7 @@ interface ReminderFailureRow {
   dm_failed: number;
   dm_status: string;
   channel_status: string;
+  error: string | null;
   channel_error: string | null;
   warning_deadline: number;
   created_at: number;
@@ -351,6 +367,7 @@ export function toReminderFailure(row: ReminderFailureRow): ReminderFailure {
     dmFailed: row.dm_failed,
     dmStatus: row.dm_status as ReminderFailure["dmStatus"],
     channelStatus: row.channel_status as ReminderFailure["channelStatus"],
+    error: row.error,
     channelError: row.channel_error,
     warningDeadline: row.warning_deadline,
     createdAt: row.created_at,

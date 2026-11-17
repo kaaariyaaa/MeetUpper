@@ -9,6 +9,7 @@ import {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
+  Events as DiscordEvents,
   type ButtonInteraction,
   type MessageActionRowComponentBuilder,
   type ModalSubmitInteraction,
@@ -51,6 +52,7 @@ interface Draft {
   version: number;
   enabled: boolean;
   offsets: number[];
+  changeOffset?: number;
   expiresAt: number;
 }
 
@@ -143,6 +145,7 @@ function panelEmbed(meetup: Meetup, draft: Draft, notice?: string): EmbedBuilder
 }
 
 function panelComponents(draft: Draft): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  const atMax = draft.offsets.length >= MAX_REMINDER_OFFSETS;
   const controls = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`reminder:toggle:${draft.id}`)
@@ -151,7 +154,8 @@ function panelComponents(draft: Draft): ActionRowBuilder<MessageActionRowCompone
     new ButtonBuilder()
       .setCustomId(`reminder:custom:${draft.id}`)
       .setLabel("自由設定")
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax),
     new ButtonBuilder()
       .setCustomId(`reminder:history:${draft.id}:0`)
       .setLabel("履歴")
@@ -168,35 +172,50 @@ function panelComponents(draft: Draft): ActionRowBuilder<MessageActionRowCompone
 
   const addSelect = new StringSelectMenuBuilder()
     .setCustomId(`reminder:preset:${draft.id}`)
-    .setPlaceholder("選択式の通知時刻を追加")
+    .setPlaceholder(atMax ? "通知時刻は最大5件です" : "選択式の通知時刻を追加")
     .setMinValues(1)
     .setMaxValues(1)
+    .setDisabled(atMax)
     .addOptions(
       PRESET_REMINDER_OFFSETS.map((preset) => ({
         label: preset.label,
         value: String(preset.seconds),
-        disabled:
-          draft.offsets.includes(preset.seconds) || draft.offsets.length >= MAX_REMINDER_OFFSETS,
+        disabled: draft.offsets.includes(preset.seconds),
       })),
     );
 
-  const removeSelect = new StringSelectMenuBuilder()
-    .setCustomId(`reminder:remove:${draft.id}`)
-    .setPlaceholder(draft.offsets.length === 0 ? "削除できる通知時刻がありません" : "削除する通知時刻")
-    .setMinValues(1)
-    .setMaxValues(1)
-    .setDisabled(draft.offsets.length === 0)
-    .addOptions(
-      draft.offsets.map((offset) =>
-        new StringSelectMenuOptionBuilder().setLabel(formatOffset(offset)).setValue(String(offset)),
-      ),
-    );
-
-  return [
+  const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [
     controls,
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(addSelect),
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(removeSelect),
   ];
+
+  if (draft.offsets.length > 0) {
+    const removeSelect = new StringSelectMenuBuilder()
+      .setCustomId(`reminder:remove:${draft.id}`)
+      .setPlaceholder("削除する通知時刻")
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        draft.offsets.map((offset) =>
+          new StringSelectMenuOptionBuilder().setLabel(formatOffset(offset)).setValue(String(offset)),
+        ),
+      );
+    const changeSelect = new StringSelectMenuBuilder()
+      .setCustomId(`reminder:change:${draft.id}`)
+      .setPlaceholder("変更する通知時刻")
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        draft.offsets.map((offset) =>
+          new StringSelectMenuOptionBuilder().setLabel(formatOffset(offset)).setValue(String(offset)),
+        ),
+      );
+    rows.push(
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(removeSelect),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(changeSelect),
+    );
+  }
+  return rows;
 }
 
 async function resolveDraft(
@@ -208,6 +227,7 @@ async function resolveDraft(
     await replyEphemeral(interaction, "設定画面の有効期限が切れました。`/meetupper reminder` を開き直してください。");
     return null;
   }
+  draft.expiresAt = Date.now() + DRAFT_TTL_MS;
   if (draft.ownerId !== interaction.user.id) {
     await replyEphemeral(interaction, "この設定画面は開いた本人だけが操作できます。");
     return null;
@@ -373,60 +393,78 @@ button(/^reminder:toggle:([A-Za-z0-9]+)$/, async (interaction) => {
   await updatePanel(interaction, draft, meetup);
 });
 
+function offsetModal(draft: Draft, changeOffset?: number): ModalBuilder {
+  const seconds = changeOffset ?? 0;
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const input = (id: string, label: string, value: number) =>
+    new TextInputBuilder()
+      .setCustomId(id)
+      .setLabel(label)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(4)
+      .setValue(value > 0 ? String(value) : "");
+  return new ModalBuilder()
+    .setCustomId(`reminder:modal:${draft.id}`)
+    .setTitle(changeOffset === undefined ? "通知時刻の自由設定（最短1分前）" : "通知時刻の変更")
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(input("days", "日（0以上）", days)),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        input("hours", "時間（0以上・24時間超も可）", hours),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(input("minutes", "分（0以上）", minutes)),
+    );
+}
+
 button(/^reminder:custom:([A-Za-z0-9]+)$/, async (interaction) => {
   const resolved = await resolveDraft(interaction);
   if (!resolved) return;
-  const { draft } = resolved;
-  const modal = new ModalBuilder()
-    .setCustomId(`reminder:modal:${draft.id}`)
-    .setTitle("通知時刻の自由設定（最短1分前）")
-    .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("days")
-          .setLabel("日（0以上）")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(4),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("hours")
-          .setLabel("時間（0以上・24時間超も可）")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(4),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("minutes")
-          .setLabel("分（0以上）")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(4),
-      ),
-    );
-  await interaction.showModal(modal);
+  if (resolved.draft.offsets.length >= MAX_REMINDER_OFFSETS) {
+    await updatePanel(interaction, resolved.draft, resolved.meetup, "通知時刻は最大5件です。");
+    return;
+  }
+  resolved.draft.changeOffset = undefined;
+  await interaction.showModal(offsetModal(resolved.draft));
+});
+
+selectMenu(/^reminder:change:([A-Za-z0-9]+)$/, async (interaction) => {
+  const resolved = await resolveDraft(interaction);
+  if (!resolved) return;
+  const offset = Number(interaction.values[0]);
+  if (!resolved.draft.offsets.includes(offset)) {
+    await updatePanel(interaction, resolved.draft, resolved.meetup, "通知時刻が不正です。");
+    return;
+  }
+  resolved.draft.changeOffset = offset;
+  await interaction.showModal(offsetModal(resolved.draft, offset));
 });
 
 modal(/^reminder:modal:([A-Za-z0-9]+)$/, async (interaction) => {
   const resolved = await resolveDraft(interaction);
   if (!resolved) return;
   const { draft, meetup } = resolved;
+  let offsets: number[];
   try {
     const days = parseField(interaction.fields.getTextInputValue("days"), "日");
     const hours = parseField(interaction.fields.getTextInputValue("hours"), "時間");
     const minutes = parseField(interaction.fields.getTextInputValue("minutes"), "分");
     const offset = offsetFromParts(days, hours, minutes);
-    const offsets = validateReminderOffsets(
-      draft.enabled,
-      draft.offsets.includes(offset) ? draft.offsets : [...draft.offsets, offset],
-    );
-    draft.offsets = offsets;
-    await updatePanel(interaction, draft, meetup);
+    const base = draft.offsets.filter((value) => value !== draft.changeOffset);
+    offsets = validateReminderOffsets(draft.enabled, base.includes(offset) ? base : [...base, offset]);
   } catch (error) {
-    await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+    await updatePanel(
+      interaction,
+      draft,
+      meetup,
+      error instanceof Error ? error.message : String(error),
+    );
+    return;
   }
+  draft.offsets = offsets;
+  draft.changeOffset = undefined;
+  await updatePanel(interaction, draft, meetup);
 });
 
 button(/^reminder:save:([A-Za-z0-9]+)$/, async (interaction) => {
@@ -465,7 +503,7 @@ button(/^reminder:save:([A-Za-z0-9]+)$/, async (interaction) => {
       });
       return;
     }
-    await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+    await updatePanel(interaction, draft, meetup, error instanceof Error ? error.message : String(error));
   }
 });
 
@@ -508,8 +546,8 @@ selectMenu(/^reminder:preset:([A-Za-z0-9]+)$/, async (interaction, args) => {
   if (!resolved) return;
   const { draft, meetup } = resolved;
   const offset = Number(interaction.values[0]);
-  if (!Number.isFinite(offset) || offset < 60) {
-    await replyEphemeral(interaction, "通知時刻が不正です。");
+  if (!PRESET_REMINDER_OFFSETS.some((preset) => preset.seconds === offset)) {
+    await updatePanel(interaction, draft, meetup, "選択式にない通知時刻です。");
     return;
   }
   try {
@@ -519,7 +557,7 @@ selectMenu(/^reminder:preset:([A-Za-z0-9]+)$/, async (interaction, args) => {
     );
     await updatePanel(interaction, draft, meetup);
   } catch (error) {
-    await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+    await updatePanel(interaction, draft, meetup, error instanceof Error ? error.message : String(error));
   }
 });
 
@@ -543,6 +581,7 @@ selectMenu(/^reminder:remove:([A-Za-z0-9]+)$/, async (interaction) => {
 
 setup((client) => {
   void tickReminders(client);
+  client.once(DiscordEvents.ClientReady, () => void tickReminders(client));
   const timer = setInterval(() => void tickReminders(client), 30_000);
   timer.unref?.();
 });

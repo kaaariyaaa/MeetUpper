@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder, type Guild } from "discord.js";
 import { config } from "./config.ts";
-import { replyError } from "./core/discord.ts";
+import { replyEphemeral, replyError } from "./core/discord.ts";
 import { findButton, findModal, findSelectMenu, getSubcommands, runSetups } from "./core/registry.ts";
 import { loadFeatures } from "./features/index.ts";
 
@@ -60,19 +60,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
     if (interaction.isButton()) {
       const routed = findButton(interaction.customId);
-      if (!routed) return;
+      if (!routed) {
+        await replyEphemeral(interaction, "この操作は現在利用できません。");
+        return;
+      }
       await routed.handler(interaction, routed.args);
       return;
     }
     if (interaction.isModalSubmit()) {
       const routed = findModal(interaction.customId);
-      if (!routed) return;
+      if (!routed) {
+        await replyEphemeral(interaction, "この操作は現在利用できません。");
+        return;
+      }
       await routed.handler(interaction, routed.args);
       return;
     }
     if (interaction.isStringSelectMenu()) {
       const routed = findSelectMenu(interaction.customId);
-      if (!routed) return;
+      if (!routed) {
+        await replyEphemeral(interaction, "この操作は現在利用できません。");
+        return;
+      }
       await routed.handler(interaction, routed.args);
     }
   } catch (error) {

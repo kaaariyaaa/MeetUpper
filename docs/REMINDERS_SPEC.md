@@ -2,7 +2,7 @@
 
 対象リポジトリ: [MeetUpper](https://github.com/kaaariyaaa/MeetUpper)
 全体設計: [DESIGN.md](../DESIGN.md)
-状態: 実装中（このファイルが改修要件の正本）
+状態: 実装済み（このファイルが改修要件の正本）
 
 ## 1. 目的
 

@@ -8,6 +8,7 @@ import {
   type ChatInputCommandInteraction,
   type Guild,
 } from "discord.js";
+import { db } from "../db.ts";
 import { button, subcommand } from "../core/registry.ts";
 import {
   addCohost,
@@ -39,7 +40,7 @@ import {
   tryDM,
 } from "../core/discord.ts";
 import { cancelEvent, updateEvent } from "../core/events.ts";
-import { recalculateSchedules } from "../core/reminders.ts";
+import { recalculateSchedules, reminderBaseAt } from "../core/reminders.ts";
 import { parseDateTime } from "../core/time.ts";
 import {
   applyButtonRow,
@@ -190,10 +191,15 @@ subcommand(
         fields.meetingAt = meetingAt;
       }
       if (placeInput) fields.meetingPlace = placeInput;
-      updateMeetup(meetup.id, fields);
-      if (fields.meetingAt !== undefined) {
-        recalculateSchedules(meetup.id, { resetAll: true });
-      }
+      const previousBase = reminderBaseAt(meetup);
+      db.transaction(() => {
+        updateMeetup(meetup.id, fields);
+        const updatedMeeting = getMeetup(meetup.id)!;
+        if (fields.meetingAt !== undefined && reminderBaseAt(updatedMeeting) !== previousBase) {
+          recalculateSchedules(meetup.id, { resetAll: true });
+        }
+      })();
+      const updatedMeeting = getMeetup(meetup.id)!;
 
       const approved = listParticipants(meetup.id, ["APPROVED"]);
       const mentions = approved.map((participant) => `<@${participant.userId}>`).join(" ");
@@ -451,11 +457,15 @@ subcommand(
         fields.startAt = startAt;
       }
 
-      updateMeetup(meetup.id, fields);
+      const previousBase = reminderBaseAt(meetup);
+      db.transaction(() => {
+        updateMeetup(meetup.id, fields);
+        const recalculated = getMeetup(meetup.id)!;
+        if (fields.startAt !== undefined && reminderBaseAt(recalculated) !== previousBase) {
+          recalculateSchedules(recalculated.id, { resetAll: true });
+        }
+      })();
       const updated = getMeetup(meetup.id)!;
-      if (fields.startAt !== undefined) {
-        recalculateSchedules(updated.id, { resetAll: true });
-      }
       if (updated.mode === "PUBLIC" && updated.eventId) await updateEvent(guild, updated);
       if (updated.forumThreadId) {
         try {

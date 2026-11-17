@@ -36,7 +36,7 @@ const {
   validateReminderOffsets,
 } = await import("../src/core/reminders.ts");
 const { tickReminders } = await import("../src/core/reminderEngine.ts");
-const { findButton, getSubcommands } = await import("../src/core/registry.ts");
+const { findButton, findSelectMenu, getSubcommands } = await import("../src/core/registry.ts");
 await import("../src/features/reminder.ts");
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -311,8 +311,10 @@ test("retries after 1, 2, 4 and 8 minutes then fails and DMs the managers", asyn
     schedule = getSchedule(schedule.id)!;
     expect(schedule.attempts).toBeGreaterThanOrEqual(2);
   }
+  expect(schedule.attempts).toBe(4);
+  expect(schedule.nextRetryAt).toBeLessThanOrEqual(schedule.scheduledAt + 15 * MINUTE);
 
-  now = Date.now() + 15 * MINUTE;
+  now = Date.now() + 14 * MINUTE;
   await tickReminders(fake.client, now);
   schedule = getSchedule(schedule.id)!;
   expect(schedule.status).toBe("FAILED");
@@ -345,7 +347,7 @@ test("expired SENDING rows are retried after restart; expired ones fail", async 
   ).run(Date.now() - 20 * MINUTE, staleSchedule.id);
   const fake2 = fakeDiscord();
   await tickReminders(fake2.client, Date.now());
-  expect(getSchedule(staleSchedule.id)?.status).toBe("FAILED");
+  expect(getSchedule(staleSchedule.id)?.status).toBe("SKIPPED");
 });
 
 test("DM failure sends one channel warning; warning is retried within 24 hours", async () => {
@@ -403,6 +405,21 @@ test("channel warnings expire after 24 hours", async () => {
     channel_status: string;
   };
   expect(updated.channel_status).toBe("EXPIRED");
+});
+
+test("settings-only changes keep SENT rows and do not resend the same base/time", async () => {
+  const meetup = makeMeetup({ approved: ["u1"] });
+  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt);
+  const fake = fakeDiscord();
+  await tickReminders(fake.client, Date.now());
+  expect(scheduleFor(meetup.id, 30 * 60)?.status).toBe("SENT");
+  const sentCount = fake.sent.length;
+
+  const settings = getReminderSettings(meetup.id);
+  saveReminderSettings(meetup.id, settings.version, true, getReminderOffsets(meetup.id));
+  expect(scheduleFor(meetup.id, 30 * 60)?.status).toBe("SENT");
+  await tickReminders(fake.client, Date.now());
+  expect(fake.sent.length).toBe(sentCount);
 });
 
 test("date changes recalculate schedules but keep history and do not resend", async () => {
@@ -498,6 +515,7 @@ function buttonInteraction(customId: string, userId = "host") {
     user: { id: userId },
     deferred: false,
     replied: false,
+    isModalSubmit: () => false,
     update: async (payload: unknown) => updates.push(payload),
     reply: async (payload: unknown) => replies.push(payload),
     followUp: async (payload: unknown) => replies.push(payload),
@@ -508,8 +526,51 @@ function buttonInteraction(customId: string, userId = "host") {
     deferUpdate: async () => {
       interaction.deferred = true;
     },
+    showModal: async (modal: unknown) => {
+      updates.push(modal);
+    },
   };
   return { interaction, updates, replies };
+}
+
+function selectInteraction(customId: string, value: string, userId = "host") {
+  const updates: unknown[] = [];
+  const interaction = {
+    customId,
+    values: [value],
+    guild: { id: "g1" },
+    user: { id: userId },
+    deferred: false,
+    replied: false,
+    isModalSubmit: () => false,
+    update: async (payload: unknown) => updates.push(payload),
+    reply: async (payload: unknown) => updates.push(payload),
+    deferUpdate: async () => {
+      interaction.deferred = true;
+    },
+    editReply: async (payload: unknown) => updates.push(payload),
+  };
+  return { interaction, updates };
+}
+
+function modalInteraction(customId: string, values: Record<string, string>, userId = "host") {
+  const updates: unknown[] = [];
+  const interaction = {
+    customId,
+    guild: { id: "g1" },
+    user: { id: userId },
+    deferred: false,
+    replied: false,
+    isModalSubmit: () => true,
+    fields: { getTextInputValue: (key: string) => values[key] ?? "" },
+    update: async (payload: unknown) => updates.push(payload),
+    reply: async (payload: unknown) => updates.push(payload),
+    deferUpdate: async () => {
+      interaction.deferred = true;
+    },
+    editReply: async (payload: unknown) => updates.push(payload),
+  };
+  return { interaction, updates };
 }
 
 test("settings screen is ephemeral and only managers can open it", async () => {
@@ -555,4 +616,69 @@ test("history view opens from the settings panel", async () => {
   await history.handler(interaction.interaction as never, history.args);
   expect(JSON.stringify(interaction.updates)).toContain("リマインダー履歴");
   expect(listDueSchedules(Date.now()).length).toBeGreaterThanOrEqual(0);
+});
+
+test("zero offsets can be saved while OFF, and ON is blocked until a time is added", async () => {
+  const meetup = makeMeetup();
+  const calls = await openPanel(meetup.id);
+  const sessionId = sessionIdFrom(calls);
+
+  const toggle = findButton(`reminder:toggle:${sessionId}`)!;
+  const off = buttonInteraction(`reminder:toggle:${sessionId}`);
+  await toggle.handler(off.interaction as never, toggle.args);
+  expect(JSON.stringify(off.updates)).toContain("OFF");
+
+  const remove = findSelectMenu(`reminder:remove:${sessionId}`)!;
+  let lastUpdate: { updates: unknown[] } | null = null;
+  for (const offset of [...DEFAULT_REMINDER_OFFSETS]) {
+    const interaction = selectInteraction(`reminder:remove:${sessionId}`, String(offset));
+    await remove.handler(interaction.interaction as never, remove.args);
+    lastUpdate = interaction;
+  }
+  expect(JSON.stringify(lastUpdate?.updates)).toContain("設定なし");
+
+  const on = buttonInteraction(`reminder:toggle:${sessionId}`);
+  await toggle.handler(on.interaction as never, toggle.args);
+  expect(JSON.stringify(on.updates)).toContain("ONにできません");
+
+  const save = findButton(`reminder:save:${sessionId}`)!;
+  const saved = buttonInteraction(`reminder:save:${sessionId}`);
+  await save.handler(saved.interaction as never, save.args);
+  expect(JSON.stringify(saved.updates)).toContain("保存しました");
+  expect(getReminderSettings(meetup.id).enabled).toBe(false);
+  expect(getReminderOffsets(meetup.id)).toEqual([]);
+});
+
+test("another user cannot operate the settings panel", async () => {
+  const meetup = makeMeetup();
+  const calls = await openPanel(meetup.id);
+  const sessionId = sessionIdFrom(calls);
+  const toggle = findButton(`reminder:toggle:${sessionId}`)!;
+  const interaction = buttonInteraction(`reminder:toggle:${sessionId}`, "other");
+  await toggle.handler(interaction.interaction as never, toggle.args);
+  expect(JSON.stringify(interaction.replies)).toContain("開いた本人だけ");
+});
+
+test("free input modal adds a custom offset and rejects zero", async () => {
+  const meetup = makeMeetup();
+  const calls = await openPanel(meetup.id);
+  const sessionId = sessionIdFrom(calls);
+
+  const custom = findButton(`reminder:custom:${sessionId}`)!;
+  const open = buttonInteraction(`reminder:custom:${sessionId}`);
+  await custom.handler(open.interaction as never, custom.args);
+  expect(open.updates.length).toBeGreaterThan(0);
+
+  const modalHandler = await import("../src/core/registry.ts").then((registry) =>
+    registry.findModal(`reminder:modal:${sessionId}`),
+  );
+  expect(modalHandler).toBeDefined();
+
+  const invalid = modalInteraction(`reminder:modal:${sessionId}`, { days: "0", hours: "0", minutes: "0" });
+  await modalHandler!.handler(invalid.interaction as never, modalHandler!.args);
+  expect(JSON.stringify(invalid.updates)).toContain("1分");
+
+  const valid = modalInteraction(`reminder:modal:${sessionId}`, { days: "0", hours: "0", minutes: "45" });
+  await modalHandler!.handler(valid.interaction as never, modalHandler!.args);
+  expect(JSON.stringify(valid.updates)).toContain("45分前");
 });

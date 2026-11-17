@@ -95,11 +95,15 @@ function ensureSettingsRow(meetupId: number, now = Date.now()): void {
 }
 
 export function getReminderSettings(meetupId: number): ReminderSettings {
+  const row = db.query("SELECT * FROM reminder_settings WHERE meetup_id = ?").get(meetupId) as
+    | Parameters<typeof toReminderSettings>[0]
+    | null;
+  if (row) return toReminderSettings(row);
   ensureSettingsRow(meetupId);
-  const row = db.query("SELECT * FROM reminder_settings WHERE meetup_id = ?").get(meetupId) as Parameters<
+  const created = db.query("SELECT * FROM reminder_settings WHERE meetup_id = ?").get(meetupId) as Parameters<
     typeof toReminderSettings
   >[0];
-  return toReminderSettings(row);
+  return toReminderSettings(created);
 }
 
 export function getReminderOffsets(meetupId: number): number[] {
@@ -116,16 +120,18 @@ export function initReminderSettings(
   now = Date.now(),
 ): ReminderSettings {
   const validOffsets = validateReminderOffsets(enabled, offsets);
-  db.query(
-    "INSERT INTO reminder_settings (meetup_id, enabled, version, updated_at) VALUES (?, ?, 1, ?)",
-  ).run(meetupId, enabled ? 1 : 0, now);
-  for (const offset of validOffsets) {
-    db.query("INSERT OR IGNORE INTO reminder_offsets (meetup_id, offset_seconds) VALUES (?, ?)").run(
-      meetupId,
-      offset,
-    );
-  }
-  recalculateSchedules(meetupId, { resetAll: true, now });
+  db.transaction(() => {
+    db.query(
+      "INSERT INTO reminder_settings (meetup_id, enabled, version, updated_at) VALUES (?, ?, 1, ?)",
+    ).run(meetupId, enabled ? 1 : 0, now);
+    for (const offset of validOffsets) {
+      db.query("INSERT OR IGNORE INTO reminder_offsets (meetup_id, offset_seconds) VALUES (?, ?)").run(
+        meetupId,
+        offset,
+      );
+    }
+    recalculateSchedules(meetupId, { resetAll: true, now });
+  })();
   return getReminderSettings(meetupId);
 }
 
@@ -151,7 +157,9 @@ export function recalculateSchedules(meetupId: number, options: RecalculateOptio
       db.query("DELETE FROM reminder_schedules WHERE meetup_id = ?").run(meetupId);
     } else {
       // Settings-only edits keep sent rows for the same base time; unsent rows are rebuilt.
-      db.query("DELETE FROM reminder_schedules WHERE meetup_id = ? AND status <> 'SENT'").run(meetupId);
+      db.query(
+        "DELETE FROM reminder_schedules WHERE meetup_id = ? AND status NOT IN ('SENT', 'SENDING')",
+      ).run(meetupId);
     }
     const sentRows = db
       .query(
@@ -182,6 +190,7 @@ export function saveReminderSettings(
   now = Date.now(),
 ): ReminderSettings {
   const validOffsets = validateReminderOffsets(enabled, offsets);
+  getReminderSettings(meetupId);
   db.transaction(() => {
     const result = db
       .query(
@@ -307,7 +316,7 @@ export function finishSchedule(
        SET status = ?, sent_at = ?, last_error = CASE WHEN ? = 'FAILED' THEN ? ELSE last_error END,
            skip_reason = CASE WHEN ? = 'SKIPPED' THEN ? ELSE skip_reason END,
            claimed_at = NULL, next_retry_at = NULL, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status NOT IN ('SENT', 'SKIPPED')`,
     ).run(
       status,
       sentAt,
@@ -370,20 +379,17 @@ export interface FailureInput {
   scheduleId: number;
   scheduledAt: number;
   failedAt: number;
-  dmSent: number;
-  dmFailed: number;
-  dmStatus: ReminderFailure["dmStatus"];
-  channelStatus: ReminderFailure["channelStatus"];
-  channelError: string | null;
+  error: string;
 }
 
+/** Creates the failure record before DMs are attempted so a crash cannot lose it. */
 export function createFailureRecord(input: FailureInput, now = Date.now()): ReminderFailure {
   const row = db
     .query(
       `INSERT INTO reminder_failures
          (meetup_id, schedule_id, scheduled_at, failed_at, dm_sent, dm_failed, dm_status,
-          channel_status, channel_error, warning_deadline, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          channel_status, error, channel_error, warning_deadline, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, 0, 'PENDING', 'PENDING', ?, NULL, ?, ?, ?)
        RETURNING *`,
     )
     .get(
@@ -391,16 +397,36 @@ export function createFailureRecord(input: FailureInput, now = Date.now()): Remi
       input.scheduleId,
       input.scheduledAt,
       input.failedAt,
-      input.dmSent,
-      input.dmFailed,
-      input.dmStatus,
-      input.channelStatus,
-      input.channelError,
+      input.error.slice(0, 1000),
       input.failedAt + FAILURE_WARNING_WINDOW_MS,
       now,
       now,
     ) as Parameters<typeof toReminderFailure>[0];
   return toReminderFailure(row);
+}
+
+export function updateFailureDmStatus(
+  id: number,
+  dmSent: number,
+  dmFailed: number,
+  dmStatus: ReminderFailure["dmStatus"],
+  now = Date.now(),
+): void {
+  db.query(
+    "UPDATE reminder_failures SET dm_sent = ?, dm_failed = ?, dm_status = ?, updated_at = ? WHERE id = ?",
+  ).run(dmSent, dmFailed, dmStatus, now, id);
+}
+
+export function listFailedSchedulesWithoutFailure(): ReminderSchedule[] {
+  return (
+    db
+      .query(
+        `SELECT s.* FROM reminder_schedules s
+         LEFT JOIN reminder_failures f ON f.schedule_id = s.id
+         WHERE s.status = 'FAILED' AND f.id IS NULL`,
+      )
+      .all() as Parameters<typeof toReminderSchedule>[0][]
+  ).map(toReminderSchedule);
 }
 
 export function updateFailureChannelStatus(
@@ -410,7 +436,7 @@ export function updateFailureChannelStatus(
   now = Date.now(),
 ): void {
   db.query(
-    "UPDATE reminder_failures SET channel_status = ?, channel_error = ?, updated_at = ? WHERE id = ?",
+    "UPDATE reminder_failures SET channel_status = ?, channel_error = ?, updated_at = ? WHERE id = ? AND channel_status = 'PENDING'",
   ).run(status, error?.slice(0, 1000) ?? null, now, id);
 }
 
@@ -418,9 +444,11 @@ export function listPendingChannelWarnings(now = Date.now()): ReminderFailure[] 
   return (
     db
       .query(
-        "SELECT * FROM reminder_failures WHERE channel_status = 'PENDING' AND warning_deadline > ? ORDER BY failed_at ASC",
+        `SELECT * FROM reminder_failures
+         WHERE channel_status = 'PENDING' AND warning_deadline > ? AND updated_at <= ?
+         ORDER BY failed_at ASC`,
       )
-      .all(now) as Parameters<typeof toReminderFailure>[0][]
+      .all(now, now - 60_000) as Parameters<typeof toReminderFailure>[0][]
   ).map(toReminderFailure);
 }
 
