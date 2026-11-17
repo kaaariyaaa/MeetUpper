@@ -17,6 +17,7 @@ import {
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
+  setupRequiredMessage,
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
@@ -161,10 +162,7 @@ subcommand(
       }
       await deferEphemeral(interaction);
       if (!(await isLayoutInitialized(guild))) {
-        await replyEphemeral(
-          interaction,
-          "サーバーのセットアップが完了していません。管理者が `/meetup init` を実行してください。",
-        );
+        await replyEphemeral(interaction, setupRequiredMessage(guild));
         return;
       }
 

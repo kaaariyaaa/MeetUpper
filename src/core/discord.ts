@@ -28,6 +28,34 @@ export interface GuildLayout {
   inviteChannel: TextChannel;
 }
 
+const SETUP_REQUIRED_MESSAGE =
+  "サーバーのセットアップが完了していません。管理者が `/meetup init` を実行してください。";
+
+/** Discord hides channels the bot cannot view (name becomes "___hidden___"), so check by permission. */
+function botCanView(guild: Guild, channel: GuildChannel): boolean {
+  const me = guild.members.me;
+  // ponytail: no cached self-member means we cannot judge; let creation proceed.
+  if (!me) return true;
+  return channel.permissionsFor(me).has(PermissionFlagsBits.ViewChannel);
+}
+
+function layoutPermissionGuidance(): string {
+  return [
+    `Bot が ${config.categoryName} カテゴリを閲覧できません。`,
+    `サーバー管理者は ${config.categoryName} カテゴリの権限で Bot に「チャンネルを見る」「チャンネルを管理」を許可してから、\`/meetup init\` を再実行してください。`,
+  ].join("\n");
+}
+
+/** Why the layout cannot be used: missing permission on the category, or setup not run yet. */
+export function setupRequiredMessage(guild: Guild): string {
+  const category = guild.channels.cache.find(
+    (channel): channel is CategoryChannel =>
+      channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
+  );
+  if (category && !botCanView(guild, category)) return layoutPermissionGuidance();
+  return SETUP_REQUIRED_MESSAGE;
+}
+
 /** True when the MeetUp category, オフ会募集 forum and 招待 channel all exist. */
 export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
   const find = () => {
@@ -74,6 +102,13 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
     });
   }
 
+  // Without ViewChannel the bot can neither see nor fix the channels it creates below the category.
+  if (!botCanView(guild, category)) throw new Error(layoutPermissionGuidance());
+
+  // Granting the bot access at creation time also survives later category permission changes.
+  const botId = guild.client.user?.id;
+  const botAccess = botId ? [{ id: botId, allow: [PermissionFlagsBits.ViewChannel] }] : [];
+
   let forum = guild.channels.cache.find(
     (channel): channel is ForumChannel =>
       channel.parentId === category!.id &&
@@ -85,6 +120,7 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.forumName,
       type: ChannelType.GuildForum,
       parent: category.id,
+      permissionOverwrites: botAccess,
     });
   }
 
@@ -99,7 +135,13 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.inviteName,
       type: ChannelType.GuildText,
       parent: category.id,
+      permissionOverwrites: botAccess,
     });
+  }
+
+  // Report the layout as ready only when the bot can actually use it.
+  for (const channel of [forum, inviteChannel]) {
+    if (!botCanView(guild, channel)) throw new Error(layoutPermissionGuidance());
   }
 
   if (forum.position !== 0) await forum.setPosition(0).catch(() => undefined);
