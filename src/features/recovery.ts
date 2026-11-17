@@ -18,6 +18,7 @@ import {
 } from "../core/meetup.ts";
 import {
   createMeetupChannel,
+  messageEmbed,
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
@@ -120,7 +121,7 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
     const guild = interaction.guild;
     cancelMeetup(meetup);
     const cancelled = getMeetup(id)!;
-    await interaction.update({ content: "オフ会を中止しました", embeds: [], components: [] });
+    await interaction.update({ embeds: [messageEmbed("オフ会を中止しました")], components: [] });
 
     await cancelEvent(guild, cancelled);
     await sendToMeetupChannel(guild, cancelled, {
@@ -160,8 +161,7 @@ button(/^recover:keep:(\d+)$/, async (interaction: ButtonInteraction, args) => {
     }
 
     await interaction.update({
-      content: "ACTIVEを維持します。専用チャンネルは再作成済みです。",
-      embeds: [],
+      embeds: [messageEmbed("ACTIVEを維持します。専用チャンネルは再作成済みです。")],
       components: [],
     });
   } catch (error) {

@@ -74,7 +74,7 @@ test("recover:cancel cancels the meetup, notifies and hides the meeting place", 
 
   expect(getMeetup(meetup.id)?.state).toBe("CANCELLED");
   expect(updated).toHaveLength(1);
-  expect(updated[0]?.content).toBe("オフ会を中止しました");
+  expect(JSON.stringify(updated[0])).toContain("オフ会を中止しました");
   expect(updated[0]?.components).toEqual([]);
   expect(dms).toEqual(["u1"]);
   expect(JSON.stringify(replies)).not.toContain("秘密の集合場所");
@@ -85,7 +85,7 @@ test("recover:cancel rejects non-managers and non-ACTIVE meetups", async () => {
 
   const guest = fakeInteraction("someone");
   await findButton(`recover:cancel:${meetup.id}`)!.handler(guest.interaction, [`${meetup.id}`]);
-  expect(guest.replies[0]?.content).toContain("主催者");
+  expect(JSON.stringify(guest.replies[0])).toContain("主催者");
   expect(getMeetup(meetup.id)?.state).toBe("ACTIVE");
 
   addCohost(meetup.id, "co");
@@ -95,7 +95,7 @@ test("recover:cancel rejects non-managers and non-ACTIVE meetups", async () => {
 
   const again = fakeInteraction("host");
   await findButton(`recover:cancel:${meetup.id}`)!.handler(again.interaction, [`${meetup.id}`]);
-  expect(again.replies[0]?.content).toContain("CANCELLED");
+  expect(JSON.stringify(again.replies[0])).toContain("CANCELLED");
 });
 
 test("recover:keep keeps ACTIVE and clears the buttons", async () => {
@@ -106,6 +106,6 @@ test("recover:keep keeps ACTIVE and clears the buttons", async () => {
   await findButton(`recover:keep:${meetup.id}`)!.handler(interaction, [`${meetup.id}`]);
 
   expect(getMeetup(meetup.id)?.state).toBe("ACTIVE");
-  expect(updated[0]?.content).toContain("ACTIVEを維持します");
+  expect(JSON.stringify(updated[0])).toContain("ACTIVEを維持します");
   expect(updated[0]?.components).toEqual([]);
 });

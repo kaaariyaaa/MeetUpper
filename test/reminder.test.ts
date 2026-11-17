@@ -17,6 +17,7 @@ const { tick } = await import("../src/features/reminder.ts");
 interface Sent {
   content: string;
   allowedMentions?: { users: string[] };
+  embeds?: { data: { description?: string } }[];
 }
 
 type GuildChannels = Record<string, string>;
@@ -97,14 +98,14 @@ async function invokeRemind(
     deferReply: async () => {
       interaction.deferred = true;
     },
-    editReply: async (payload: { content: string }) => {
-      replies.push(payload.content);
+    editReply: async (payload: unknown) => {
+      replies.push(JSON.stringify(payload));
     },
-    reply: async (payload: { content: string }) => {
-      replies.push(payload.content);
+    reply: async (payload: unknown) => {
+      replies.push(JSON.stringify(payload));
     },
-    followUp: async (payload: { content: string }) => {
-      replies.push(payload.content);
+    followUp: async (payload: unknown) => {
+      replies.push(JSON.stringify(payload));
     },
   };
   await entry.execute(interaction as never);
@@ -129,10 +130,11 @@ test("tick announces due reminders to approved participants only, once", async (
 
   expect(sent.length).toBe(1);
   const payload = sent[0]!;
-  expect(payload.content).toContain("⏰ 3時間後に開催です: テストオフ会");
-  expect(payload.content).toContain("開始: <t:");
-  expect(payload.content).toContain("集合時間: <t:");
-  expect(payload.content).toContain("集合場所: 渋谷駅ハチ公前");
+  const body = payload.embeds?.[0]?.data.description ?? "";
+  expect(body).toContain("⏰ 3時間後に開催です: テストオフ会");
+  expect(body).toContain("開始: <t:");
+  expect(body).toContain("集合時間: <t:");
+  expect(body).toContain("集合場所: 渋谷駅ハチ公前");
   expect(payload.content).toContain("<@u1>");
   expect(payload.content).toContain("<@u2>");
   expect(payload.content).not.toContain("<@u3>");
@@ -196,10 +198,12 @@ test("manual remind sends the announcement without touching reminder rows", asyn
   const { sent, replies } = await invokeRemind(meetup.id, { userId: "host" });
 
   expect(sent.length).toBe(1);
-  expect(sent[0]!.content).toContain("⏰ リマインド: テストオフ会");
-  expect(sent[0]!.content).toContain("集合場所: 渋谷駅ハチ公前");
+  const body = sent[0]!.embeds?.[0]?.data.description ?? "";
+  expect(body).toContain("⏰ リマインド: テストオフ会");
+  expect(body).toContain("集合場所: 渋谷駅ハチ公前");
   expect(sent[0]!.allowedMentions?.users).toEqual(["u1"]);
-  expect(replies).toEqual(["リマインドを送信しました"]);
+  expect(replies.length).toBe(1);
+  expect(replies[0]).toContain("リマインドを送信しました");
   expect(isSent(meetup.id, "3h")).toBe(false);
 });
 

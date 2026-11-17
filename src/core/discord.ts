@@ -1,5 +1,6 @@
 import {
   ChannelType,
+  EmbedBuilder,
   MessageFlags,
   OverwriteType,
   PermissionFlagsBits,
@@ -478,7 +479,7 @@ export async function tryDM(
 ): Promise<boolean> {
   try {
     const user: User = await client.users.fetch(userId);
-    await user.send(payload);
+    await user.send(typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload));
     return true;
   } catch {
     return false;
@@ -513,11 +514,26 @@ export async function deleteThread(thread: ThreadChannel | null | undefined): Pr
   await thread.delete().catch(() => undefined);
 }
 
+const MESSAGE_COLOR = 0x5865f2;
+
+/** Bot text is always rendered as an embed. */
+export function messageEmbed(text: string): EmbedBuilder {
+  return new EmbedBuilder().setColor(MESSAGE_COLOR).setDescription(text.slice(0, 4000));
+}
+
+/** Plain-text payloads become embeds; payloads that already carry embeds are left alone. */
+function withEmbed<T extends { content?: string | null; embeds?: readonly unknown[] }>(payload: T): T {
+  if (!payload.content || (payload.embeds?.length ?? 0) > 0) return payload;
+  const { content, ...rest } = payload;
+  return { ...rest, embeds: [messageEmbed(content)] } as unknown as T;
+}
+
 export async function replyEphemeral(
   interaction: RepliableInteraction,
   options: string | InteractionReplyOptions,
 ): Promise<void> {
-  const payload: InteractionReplyOptions = typeof options === "string" ? { content: options } : options;
+  const payload: InteractionReplyOptions =
+    typeof options === "string" ? { embeds: [messageEmbed(options)] } : withEmbed(options);
   payload.flags = MessageFlags.Ephemeral;
   if (interaction.deferred && !interaction.replied) {
     // Resolve the deferred reply instead of sending a second ephemeral message.
@@ -559,7 +575,7 @@ export async function sendToMeetupChannel(
   const channel = await getMeetupChannel(guild, meetup);
   if (!channel) return false;
   try {
-    await channel.send(payload);
+    await channel.send(typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload));
     return true;
   } catch {
     return false;

@@ -2,6 +2,7 @@ import { SlashCommandSubcommandBuilder, type Client } from "discord.js";
 import {
   deferEphemeral,
   getMeetupChannel,
+  messageEmbed,
   replyEphemeral,
   replyError,
   resolveTargetMeetup,
@@ -18,11 +19,10 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 /** Reminder text in the shared announcement style. The meeting place stays inside the private meetup channel. */
-function announcementContent(meetup: Meetup, approved: Participant[], heading: string): string {
+function announcementBody(meetup: Meetup, heading: string): string {
   const lines = [`⏰ ${heading}: ${meetup.name}`, `開始: ${discordTimestamp(meetup.startAt)}`];
   if (meetup.meetingAt) lines.push(`集合時間: ${discordTimestamp(meetup.meetingAt)}`);
   if (meetup.meetingPlace) lines.push(`集合場所: ${meetup.meetingPlace}`);
-  lines.push(approved.map((participant) => `<@${participant.userId}>`).join(" "));
   return lines.join("\n");
 }
 
@@ -37,8 +37,9 @@ async function sendAnnouncement(
   const channel = await getMeetupChannel(guild, meetup);
   if (!channel) return false;
   await channel.send({
-    content: announcementContent(meetup, approved, heading),
+    content: approved.map((participant) => `<@${participant.userId}>`).join(" "),
     allowedMentions: { users: approved.map((participant) => participant.userId) },
+    embeds: [messageEmbed(announcementBody(meetup, heading))],
   });
   return true;
 }
@@ -75,12 +76,13 @@ export async function tick(client: Client): Promise<void> {
 
       try {
         await channel.send({
-          content: announcementContent(
-            meetup,
-            approved,
-            `${KIND_LABEL[reminder.kind] ?? reminder.kind}に開催です`,
-          ),
+          content: approved.map((participant) => `<@${participant.userId}>`).join(" "),
           allowedMentions: { users: approved.map((participant) => participant.userId) },
+          embeds: [
+            messageEmbed(
+              announcementBody(meetup, `${KIND_LABEL[reminder.kind] ?? reminder.kind}に開催です`),
+            ),
+          ],
         });
         markReminderSent(meetup.id, reminder.kind);
       } catch (error) {

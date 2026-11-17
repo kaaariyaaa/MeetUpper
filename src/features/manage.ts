@@ -30,6 +30,7 @@ import {
   archiveChannel,
   deferEphemeral,
   fetchMember,
+  messageEmbed,
   replyEphemeral,
   replyError,
   resolveTargetMeetup,
@@ -101,8 +102,10 @@ async function notifyChannel(guild: Guild, meetupId: number, content: string | u
   const meetup = getMeetup(meetupId);
   if (!meetup) return;
   await sendToMeetupChannel(guild, meetup, {
-    ...(content ? { content } : {}),
-    embeds: [meetupEmbed(meetup, { includeMeetingPlace: true })],
+    embeds: [
+      ...(content ? [messageEmbed(content)] : []),
+      meetupEmbed(meetup, { includeMeetingPlace: true }),
+    ],
   });
 }
 
@@ -511,7 +514,7 @@ button(/^manage:confirm-archive:(\d+)$/, async (interaction, args) => {
 
     archiveMeetup(meetup);
     const updated = getMeetup(meetup.id)!;
-    await interaction.update({ content: "アーカイブしました", embeds: [], components: [] });
+    await interaction.update({ embeds: [messageEmbed("アーカイブしました")], components: [] });
     await archiveChannel(guild, updated);
     await syncMeetupAccess(guild, updated).catch((error) =>
       console.error("アーカイブ後の権限同期に失敗しました", error),
@@ -528,7 +531,7 @@ button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
 
     cancelMeetup(meetup);
     const updated = getMeetup(meetup.id)!;
-    await interaction.update({ content: "オフ会を中止しました", embeds: [], components: [] });
+    await interaction.update({ embeds: [messageEmbed("オフ会を中止しました")], components: [] });
 
     await cancelEvent(guild, updated);
     const message = `オフ会が中止されました: ${updated.name}`;
@@ -542,6 +545,6 @@ button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
 
 button(/^manage:abort$/, async (interaction) => {
   await runButton(interaction, async () => {
-    await interaction.update({ content: "キャンセルしました", embeds: [], components: [] });
+    await interaction.update({ embeds: [messageEmbed("キャンセルしました")], components: [] });
   });
 });

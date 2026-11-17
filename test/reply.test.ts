@@ -48,7 +48,7 @@ test("replyEphemeral resolves a deferred reply with editReply (no double message
   await deferEphemeral(interaction as never);
   await replyEphemeral(interaction as never, "done");
   expect(calls.map((call) => call.type)).toEqual(["deferReply", "editReply"]);
-  expect(calls[1]?.payload?.content).toBe("done");
+  expect(JSON.stringify(calls[1]?.payload)).toContain("done");
   expect(calls[1]?.payload?.flags).toBeUndefined();
 });
 
