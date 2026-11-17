@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ChannelType } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +14,8 @@ const {
   decideInviteRequest,
   getInviteRequest,
   hasPendingInviteRequest,
+  setParticipantState,
+  updateMeetup,
 } = await import("../src/core/meetup.ts");
 const { inviteEmbed } = await import("../src/features/invite.ts");
 
@@ -90,4 +93,61 @@ test("invite request decisions are atomic and pending requests block duplicates"
   expect(decideInviteRequest(request.id, "REJECTED", "host")).toBe(0);
   expect(getInviteRequest(request.id)?.status).toBe("APPROVED");
   expect(hasPendingInviteRequest(meetup.id, "u2")).toBe(false);
+});
+
+test("accepting an invite announces the new member in the meetup channel", async () => {
+  const meetup = createMeetup({
+    guildId: "g-invite",
+    hostId: "host",
+    name: "参加通知",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PRIVATE",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  updateMeetup(meetup.id, { channelId: "chan-join" });
+  setParticipantState(meetup.id, "u9", "INVITED", { invitedBy: "host" });
+
+  const sent: unknown[] = [];
+  const channel = {
+    id: "chan-join",
+    type: ChannelType.GuildText,
+    send: async (payload: unknown) => {
+      sent.push(payload);
+    },
+    permissionOverwrites: {
+      cache: new Map(),
+      edit: async () => undefined,
+      delete: async () => undefined,
+    },
+  };
+  const guild = {
+    id: "g-invite",
+    client: { user: { id: "bot" } },
+    roles: { everyone: { id: "everyone" } },
+    members: { me: { id: "bot" }, fetch: async () => ({ id: "u9" }) },
+    channels: { fetch: async (id: string) => (id === "chan-join" ? channel : null) },
+  };
+  const interaction = {
+    user: { id: "u9" },
+    guild,
+    client: { guilds: { cache: new Map([["g-invite", guild]]) } },
+    channel: null,
+    deferred: false,
+    replied: false,
+    deferUpdate: async () => undefined,
+    editReply: async () => undefined,
+    reply: async () => undefined,
+    followUp: async () => undefined,
+  };
+
+  const accept = findButton(`invite:accept:${meetup.id}`)!;
+  await accept.handler(interaction as never, accept.args);
+
+  expect(JSON.stringify(sent)).toContain("<@u9> が参加しました");
 });

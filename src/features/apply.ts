@@ -23,6 +23,7 @@ import {
   setParticipantState,
 } from "../core/meetup.ts";
 import {
+  announceJoin,
   deferEphemeral,
   meetupFromInteraction,
   replyEphemeral,
@@ -277,9 +278,7 @@ async function confirmApproval(
     applicantId,
     `参加が確定しました: ${meetup.name}${warning ? `\n${warning}` : ""}`,
   );
-  await sendToMeetupChannel(guild, meetup, {
-    content: `<@${applicantId}> の参加が確定しました。${warning ? `\n${warning}` : ""}`,
-  });
+  await announceJoin(guild, meetup, applicantId, warning);
 }
 
 subcommand(

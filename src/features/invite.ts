@@ -9,6 +9,7 @@ import {
   type Guild,
 } from "discord.js";
 import {
+  announceJoin,
   createInviteThread,
   deferEphemeral,
   deleteThread,
@@ -304,6 +305,12 @@ button(/^invite:accept:(\d+)$/, async (interaction, args) => {
     if (guild) {
       await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) =>
         console.error("参加者の権限同期に失敗しました", error),
+      );
+      await announceJoin(
+        guild,
+        meetup,
+        interaction.user.id,
+        overCapacity ? "⚠️ 定員を超えています。主催者へ確認してください。" : undefined,
       );
     }
     await deleteThread(privateThreadOf(interaction));

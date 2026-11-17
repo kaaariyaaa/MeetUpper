@@ -20,6 +20,7 @@ import {
 import { config } from "../config.ts";
 import type { Meetup } from "./types.ts";
 import {
+  countApproved,
   findMeetupByChannelId,
   findMeetupByThreadId,
   getMeetup,
@@ -89,6 +90,20 @@ export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
   if (find()) return true;
   await guild.channels.fetch().catch(() => undefined);
   return find();
+}
+
+/** Tells the meetup channel (host, cohosts and approved members) that someone joined. */
+export async function announceJoin(
+  guild: Guild,
+  meetup: Meetup,
+  userId: string,
+  warning?: string,
+): Promise<void> {
+  const current = getMeetup(meetup.id) ?? meetup;
+  const sent = await sendToMeetupChannel(guild, current, {
+    content: `<@${userId}> が参加しました（確定 ${countApproved(current.id)}人）${warning ? `\n${warning}` : ""}`,
+  });
+  if (!sent) console.error(`参加通知を送信できませんでした: meetup=${meetup.id}`);
 }
 
 /** The meetup owning a channel: its dedicated channel, a thread in it, or the recruitment thread. */
