@@ -3,7 +3,7 @@ import { ChannelType, Collection, PermissionFlagsBits, PermissionsBitField } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-process.env.DB_PATH ??= join(tmpdir(), `meetupper-layout-test-${process.pid}-${Date.now()}.db`);
+process.env.DB_PATH = join(tmpdir(), `meetupper-layout-test-${process.pid}-${Date.now()}.db`);
 
 const { channelSlug, ensureLayout, isLayoutInitialized, setupRequiredMessage } = await import(
   "../src/core/discord.ts"

@@ -3,7 +3,7 @@ import { GuildScheduledEventStatus } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-process.env.DB_PATH ??= join(tmpdir(), `meetupper-events-test-${process.pid}-${Date.now()}.db`);
+process.env.DB_PATH = join(tmpdir(), `meetupper-events-test-${process.pid}-${Date.now()}.db`);
 const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 
