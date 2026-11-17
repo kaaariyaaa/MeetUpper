@@ -155,11 +155,18 @@ export function recalculateSchedules(meetupId: number, options: RecalculateOptio
   db.transaction(() => {
     if (options.resetAll) {
       db.query("DELETE FROM reminder_schedules WHERE meetup_id = ?").run(meetupId);
+    } else if (!enabled) {
+      // Turning OFF stops unsent reminders; retry state and audit rows stay for history.
+      db.query("DELETE FROM reminder_schedules WHERE meetup_id = ? AND status = 'PENDING'").run(meetupId);
     } else {
-      // Settings-only edits keep sent rows for the same base time; unsent rows are rebuilt.
+      // Settings-only edits must not drop a retry or an in-window send: keep PENDING rows
+      // that still match the current base/offset and only discard the ones no longer configured.
+      const placeholders = offsets.map(() => "?").join(", ");
       db.query(
-        "DELETE FROM reminder_schedules WHERE meetup_id = ? AND status NOT IN ('SENT', 'SENDING')",
-      ).run(meetupId);
+        `DELETE FROM reminder_schedules
+         WHERE meetup_id = ? AND status = 'PENDING'
+           AND (base_at <> ?${placeholders ? ` OR offset_seconds NOT IN (${placeholders})` : ""})`,
+      ).run(meetupId, baseAt, ...offsets);
     }
     const sentRows = db
       .query(

@@ -113,13 +113,16 @@ async function notifyFailure(
 ): Promise<void> {
   let failure = getFailureBySchedule(schedule.id);
   if (!failure) {
-    failure = createFailureRecord({
-      meetupId: meetup.id,
-      scheduleId: schedule.id,
-      scheduledAt: schedule.scheduledAt,
-      failedAt: now,
-      error: reason,
-    });
+    failure = createFailureRecord(
+      {
+        meetupId: meetup.id,
+        scheduleId: schedule.id,
+        scheduledAt: schedule.scheduledAt,
+        failedAt: now,
+        error: reason,
+      },
+      now,
+    );
   } else if (failure.dmStatus !== "PENDING") {
     return;
   }
@@ -185,10 +188,10 @@ async function sendReminder(
   const attempts = schedule.attempts + 1;
   const delay = REMINDER_RETRY_DELAYS_MS[attempts - 1];
   const baseAt = reminderBaseAt(meetup);
-  // Leave a scheduler tick of slack before the 15-minute hard stop.
+  // Never send after scheduledAt + 15min. Leave a scheduler tick of slack so the final
+  // retry (the 8-minute delay) still runs before the hard stop instead of silently expiring.
   const retryWindowEnd = schedule.scheduledAt + REMINDER_WINDOW_MS - 60_000;
-  const retryAt =
-    delay === undefined ? null : Math.min(now + delay, retryWindowEnd);
+  const retryAt = delay === undefined ? null : Math.min(now + delay, retryWindowEnd);
   const canRetry =
     retryAt !== null && retryAt > now && retryAt <= retryWindowEnd && now < baseAt;
   if (canRetry && retryAt !== null) {
@@ -248,6 +251,11 @@ async function processDueMeetup(
 
 async function processPendingWarnings(client: Client, now: number): Promise<void> {
   for (const failure of listPendingChannelWarnings(now)) {
+    if (failure.dmFailed === 0) {
+      // No DM is known to have failed (e.g. crash before DM results): spec 8.1 forbids a warning.
+      updateFailureChannelStatus(failure.id, "SKIPPED", "DM失敗なし", now);
+      continue;
+    }
     const meetup = getMeetup(failure.meetupId);
     if (!meetup || meetup.state !== "ACTIVE") {
       updateFailureChannelStatus(failure.id, "SKIPPED", "MeetUpがACTIVEではない", now);
@@ -294,13 +302,30 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
     }
 
     for (const schedule of listExpiredSchedules(now)) {
-      finishSchedule(schedule.id, "SKIPPED", "通知時刻から15分を超えたため送信しない", null, now);
+      const meetup = getMeetup(schedule.meetupId);
+      const active = meetup !== null && meetup.state === "ACTIVE";
+      if (schedule.attempts === 0 || !active) {
+        // Never attempted (e.g. bot was offline) or the MeetUp stopped: no failure DM.
+        finishSchedule(
+          schedule.id,
+          "SKIPPED",
+          active ? "通知時刻から15分を超えたため送信しない" : "MeetUpがACTIVEではない",
+          null,
+          now,
+        );
+        continue;
+      }
+      // A retry whose window ran out is a confirmed send failure, so managers get the DM.
+      const error = schedule.lastError ?? "再試行の期限切れ";
+      finishSchedule(schedule.id, "FAILED", error, null, now);
+      await notifyFailure(client, meetup, schedule, error, now);
     }
 
     // A crash between the FAILED update and the failure record is repaired here.
     for (const schedule of listFailedSchedulesWithoutFailure()) {
       const meetup = getMeetup(schedule.meetupId);
-      if (!meetup) continue;
+      // Cancel/archive must also stop failure DMs whose failure record was never written.
+      if (!meetup || meetup.state !== "ACTIVE") continue;
       await notifyFailure(
         client,
         meetup,
