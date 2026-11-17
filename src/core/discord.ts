@@ -105,9 +105,8 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
   // Without ViewChannel the bot can neither see nor fix the channels it creates below the category.
   if (!botCanView(guild, category)) throw new Error(layoutPermissionGuidance());
 
-  // Granting the bot access at creation time also survives later category permission changes.
-  const botId = guild.client.user?.id;
-  const botAccess = botId ? [{ id: botId, allow: [PermissionFlagsBits.ViewChannel] }] : [];
+  // The layout rules live on the category; channels below it inherit them.
+  await applyLayoutPermissions(guild, category);
 
   let forum = guild.channels.cache.find(
     (channel): channel is ForumChannel =>
@@ -120,7 +119,6 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.forumName,
       type: ChannelType.GuildForum,
       parent: category.id,
-      permissionOverwrites: botAccess,
     });
   }
 
@@ -135,71 +133,50 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       name: config.inviteName,
       type: ChannelType.GuildText,
       parent: category.id,
-      permissionOverwrites: botAccess,
     });
   }
 
-  // Report the layout as ready only when the bot can actually use it.
+  // Discord copies the category overwrites onto new channels; drop the copies so later category
+  // edits still apply. Report the layout as ready only when the bot can actually use it.
   for (const channel of [forum, inviteChannel]) {
+    if (channel.permissionOverwrites.cache.size > 0) {
+      await channel.permissionOverwrites.set([]).catch(() => undefined);
+    }
     if (!botCanView(guild, channel)) throw new Error(layoutPermissionGuidance());
   }
 
   if (forum.position !== 0) await forum.setPosition(0).catch(() => undefined);
   if (inviteChannel.position !== 1) await inviteChannel.setPosition(1).catch(() => undefined);
-  await applyLayoutPermissions(guild, forum, inviteChannel);
   return { category, forum, inviteChannel };
 }
 
-/** Re-applies the fixed forum/invite rules even when the channels already existed. */
-async function applyLayoutPermissions(
-  guild: Guild,
-  forum: ForumChannel,
-  inviteChannel: TextChannel,
-): Promise<void> {
-  const everyone = guild.roles.everyone;
-  await forum.permissionOverwrites
-    .edit(everyone, {
-      ViewChannel: true,
-      SendMessages: false,
-      SendMessagesInThreads: true,
-      ReadMessageHistory: true,
-      CreatePublicThreads: false,
-      CreatePrivateThreads: false,
-    })
-    .catch(() => undefined);
-  await inviteChannel.permissionOverwrites
-    .edit(everyone, {
-      ViewChannel: true,
-      SendMessages: false,
-      CreatePrivateThreads: false,
-      SendMessagesInThreads: true,
-      ReadMessageHistory: true,
-    })
-    .catch(() => undefined);
+const LAYOUT_EVERYONE_PERMISSIONS = {
+  ViewChannel: true,
+  SendMessages: false,
+  SendMessagesInThreads: true,
+  ReadMessageHistory: true,
+  CreatePublicThreads: false,
+  CreatePrivateThreads: false,
+};
 
+const LAYOUT_BOT_PERMISSIONS = {
+  ViewChannel: true,
+  SendMessages: true,
+  SendMessagesInThreads: true,
+  ReadMessageHistory: true,
+  CreatePublicThreads: true,
+  CreatePrivateThreads: true,
+  ManageThreads: true,
+};
+
+/** Re-applies the fixed layout rules to the category, which every channel below it inherits. */
+async function applyLayoutPermissions(guild: Guild, category: CategoryChannel): Promise<void> {
+  await category.permissionOverwrites
+    .edit(guild.roles.everyone, LAYOUT_EVERYONE_PERMISSIONS)
+    .catch(() => undefined);
   const me = guild.members.me;
   if (!me) return;
-  await forum.permissionOverwrites
-    .edit(me, {
-      ViewChannel: true,
-      SendMessages: true,
-      SendMessagesInThreads: true,
-      ReadMessageHistory: true,
-      CreatePublicThreads: true,
-      CreatePrivateThreads: true,
-      ManageThreads: true,
-    })
-    .catch(() => undefined);
-  await inviteChannel.permissionOverwrites
-    .edit(me, {
-      ViewChannel: true,
-      SendMessages: true,
-      SendMessagesInThreads: true,
-      CreatePrivateThreads: true,
-      ReadMessageHistory: true,
-      ManageThreads: true,
-    })
-    .catch(() => undefined);
+  await category.permissionOverwrites.edit(me, LAYOUT_BOT_PERMISSIONS).catch(() => undefined);
 }
 
 function childrenOf(guild: Guild, categoryId: string): GuildChannel[] {
