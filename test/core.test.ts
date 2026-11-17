@@ -33,7 +33,7 @@ test("participant states, votes and reminders", () => {
   const meetup = createMeetup({
     guildId: "1",
     hostId: "host",
-    name: "東京オフ会",
+    name: "東京meetup",
     description: "test",
     capacity: 3,
     startAt: Date.now() + 48 * 60 * 60 * 1000,
@@ -45,7 +45,7 @@ test("participant states, votes and reminders", () => {
     eventEnabled: false,
   });
 
-  expect(getMeetup(meetup.id)?.name).toBe("東京オフ会");
+  expect(getMeetup(meetup.id)?.name).toBe("東京meetup");
   expect(countApproved(meetup.id)).toBe(0);
 
   setParticipantState(meetup.id, "u1", "APPROVED", { approvedBy: "host" });
@@ -78,10 +78,10 @@ test("participant states, votes and reminders", () => {
   const updated = updateMeetup(meetup.id, {
     capacity: 5,
     startAt: meetup.startAt + 60 * 60 * 1000,
-    name: "東京オフ会（変更後）",
+    name: "東京MeetUp（変更後）",
   });
   expect(updated?.capacity).toBe(5);
-  expect(updated?.name).toBe("東京オフ会（変更後）");
+  expect(updated?.name).toBe("東京MeetUp（変更後）");
   expect(updated?.startAt).toBe(meetup.startAt + 60 * 60 * 1000);
 
   archiveMeetup(meetup);

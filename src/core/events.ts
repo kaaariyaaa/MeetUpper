@@ -11,7 +11,7 @@ import type { Meetup } from "./types.ts";
 const DEFAULT_EVENT_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export function publicEventDescription(meetup: Meetup): string {
-  const intro = meetup.description || "オフ会を開催します。";
+  const intro = meetup.description || "MeetUpを開催します。";
   return `${intro}\n\n参加確定者は専用チャンネルに集合場所・集合時間が共有されます。`.slice(0, 1000);
 }
 

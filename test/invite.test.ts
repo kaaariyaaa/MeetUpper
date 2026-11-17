@@ -52,7 +52,7 @@ test("invite embed hides the meeting place and shows the inviter", () => {
   const meetup = createMeetup({
     guildId: "guild",
     hostId: "host",
-    name: "秘密のオフ会",
+    name: "秘密のmeetup",
     description: "test",
     capacity: 4,
     startAt: Date.now() + 24 * 60 * 60 * 1000,

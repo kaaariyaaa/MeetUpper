@@ -65,10 +65,10 @@ function parseOptionalDateTime(input: string | null): number | null | undefined 
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("create")
-    .setDescription("オフ会を作成します")
+    .setDescription("MeetUpを作成します")
     // Discord requires every required option to precede all optional options.
     .addStringOption((option) =>
-      option.setName("name").setDescription("オフ会名").setMaxLength(100).setRequired(true),
+      option.setName("name").setDescription("MeetUp名").setMaxLength(100).setRequired(true),
     )
     .addStringOption((option) =>
       option
@@ -183,11 +183,11 @@ subcommand(
       try {
         channel = await createMeetupChannel(guild, meetup);
       } catch (error) {
-        console.error("オフ会専用チャンネルの作成に失敗しました", error);
+        console.error("MeetUp専用チャンネルの作成に失敗しました", error);
         deleteMeetup(meetup.id);
         await replyEphemeral(
           interaction,
-          "専用チャンネルを作成できなかったため、オフ会の作成を取り消しました。" +
+          "専用チャンネルを作成できなかったため、MeetUpの作成を取り消しました。" +
             "チャンネル数やBotの権限を確認してください。",
         );
         return;
@@ -232,9 +232,9 @@ subcommand(
       await replyEphemeral(
         interaction,
         [
-          "オフ会を作成しました。",
+          "MeetUpを作成しました。",
           `専用チャンネル: <#${channel.id}>`,
-          `オフ会ID: ${meetup.id}`,
+          `MeetUp ID: ${meetup.id}`,
           ...warnings,
         ].join("\n"),
       );
@@ -247,7 +247,7 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("list")
-    .setDescription("ACTIVEなオフ会の一覧を表示します"),
+    .setDescription("ACTIVEなMeetUpの一覧を表示します"),
   async (interaction) => {
     try {
       const guild = await requireGuild(interaction);
@@ -261,7 +261,7 @@ subcommand(
         return state !== undefined && state !== "REJECTED";
       });
       if (meetups.length === 0) {
-        await replyEphemeral(interaction, "ACTIVEなオフ会はありません");
+        await replyEphemeral(interaction, "ACTIVEなMeetUpはありません");
         return;
       }
 
@@ -270,7 +270,7 @@ subcommand(
           `**#${meetup.id} ${meetup.name}**\n${discordTimestamp(meetup.startAt)} / ${meetup.mode} / ${meetup.state} / 確定 ${countApproved(meetup.id)}人`,
       );
       const embed = new EmbedBuilder()
-        .setTitle("オフ会一覧")
+        .setTitle("MeetUp一覧")
         .setDescription(lines.join("\n").slice(0, 4000));
       await replyEphemeral(interaction, { embeds: [embed] });
     } catch (error) {
@@ -282,9 +282,9 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("show")
-    .setDescription("オフ会の詳細を表示します")
+    .setDescription("MeetUpの詳細を表示します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル・募集スレッド内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル・募集スレッド内なら省略可）"),
     ),
   async (interaction) => {
     try {
@@ -297,7 +297,7 @@ subcommand(
       const manager = canManage(meetup, userId);
       const participant = getParticipant(meetup.id, userId);
       if (meetup.mode === "PRIVATE" && !manager && !participant) {
-        await replyEphemeral(interaction, "このオフ会を表示する権限がありません。");
+        await replyEphemeral(interaction, "このMeetUpを表示する権限がありません。");
         return;
       }
 

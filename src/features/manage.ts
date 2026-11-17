@@ -81,12 +81,12 @@ async function runButton(
 
 function resolveMeetup(guild: Guild, id: number): Meetup {
   const meetup = getMeetup(id);
-  if (!meetup || meetup.guildId !== guild.id) throw new Error("オフ会が見つかりません。");
+  if (!meetup || meetup.guildId !== guild.id) throw new Error("MeetUpが見つかりません。");
   return meetup;
 }
 
 function requireManage(meetup: Meetup, userId: string): void {
-  if (!canManage(meetup, userId)) throw new Error("このオフ会を管理する権限がありません。");
+  if (!canManage(meetup, userId)) throw new Error("このMeetUpを管理する権限がありません。");
 }
 
 function requireHost(meetup: Meetup, userId: string): void {
@@ -94,7 +94,7 @@ function requireHost(meetup: Meetup, userId: string): void {
 }
 
 function requireActive(meetup: Meetup): void {
-  if (meetup.state !== "ACTIVE") throw new Error("ACTIVE のオフ会のみ操作できます。");
+  if (meetup.state !== "ACTIVE") throw new Error("ACTIVE のMeetUpのみ操作できます。");
 }
 
 /** Channel notice restricted to the meetup channel audience (host, cohosts, approved). */
@@ -146,7 +146,7 @@ subcommand(
     .setName("info")
     .setDescription("集合時間・集合場所を更新します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     )
     .addStringOption((option) =>
       option
@@ -195,7 +195,7 @@ subcommand(
     .setName("leave")
     .setDescription("参加をキャンセルします")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -223,12 +223,12 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("kick")
-    .setDescription("参加確定者をオフ会から退出させます")
+    .setDescription("参加確定者をMeetUpから退出させます")
     .addUserOption((option) =>
       option.setName("user").setDescription("退出させる参加者").setRequired(true),
     )
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -250,9 +250,9 @@ subcommand(
       await notifyChannel(
         guild,
         meetup.id,
-        `<@${target.id}> が主催者によりオフ会から退出させられました。`,
+        `<@${target.id}> が主催者によりMeetUpから退出させられました。`,
       );
-      await tryDM(interaction.client, target.id, `オフ会「${meetup.name}」から退出となりました。`);
+      await tryDM(interaction.client, target.id, `MeetUp「${meetup.name}」から退出となりました。`);
       await replyEphemeral(interaction, `<@${target.id}> を退出させました。`);
     });
   },
@@ -265,7 +265,7 @@ subcommand(
     .setName("members")
     .setDescription("参加者一覧を表示します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -295,7 +295,7 @@ subcommand(
         .addChoices({ name: "追加", value: "add" }, { name: "削除", value: "remove" }),
     )
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -335,7 +335,7 @@ subcommand(
       option.setName("user").setDescription("新しい主催者").setRequired(true),
     )
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -372,12 +372,12 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("edit")
-    .setDescription("オフ会の基本情報を編集します")
+    .setDescription("MeetUpの基本情報を編集します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     )
     .addStringOption((option) =>
-      option.setName("name").setDescription("新しいオフ会名").setMaxLength(100),
+      option.setName("name").setDescription("新しいMeetUp名").setMaxLength(100),
     )
     .addStringOption((option) => option.setName("description").setDescription("新しい説明"))
     .addIntegerOption((option) =>
@@ -439,8 +439,8 @@ subcommand(
       if (capacity !== null && countApproved(updated.id) > capacity) {
         warnings.push("確定済みの参加者数が新しい定員を超えています");
       }
-      await notifyChannel(guild, updated.id, "オフ会の基本情報が更新されました。");
-      await replyEphemeral(interaction, ["オフ会情報を更新しました", ...warnings].join("\n"));
+      await notifyChannel(guild, updated.id, "MeetUpの基本情報が更新されました。");
+      await replyEphemeral(interaction, ["MeetUp情報を更新しました", ...warnings].join("\n"));
     });
   },
 );
@@ -450,9 +450,9 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("archive")
-    .setDescription("オフ会をアーカイブします")
+    .setDescription("MeetUpをアーカイブします")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -479,9 +479,9 @@ subcommand(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("cancel")
-    .setDescription("オフ会を中止します")
+    .setDescription("MeetUpを中止します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     await runCommand(interaction, async (guild) => {
@@ -490,7 +490,7 @@ subcommand(
       requireActive(meetup);
 
       const embed = new EmbedBuilder()
-        .setTitle("オフ会を中止しますか？")
+        .setTitle("MeetUpを中止しますか？")
         .setDescription(
           `「${meetup.name}」を中止します。参加確定者へチャンネルとDMで通知されます。` +
             "この操作は取り消せません。",
@@ -531,10 +531,10 @@ button(/^manage:confirm-cancel:(\d+)$/, async (interaction, args) => {
 
     cancelMeetup(meetup);
     const updated = getMeetup(meetup.id)!;
-    await interaction.update({ embeds: [messageEmbed("オフ会を中止しました")], components: [] });
+    await interaction.update({ embeds: [messageEmbed("MeetUpを中止しました")], components: [] });
 
     await cancelEvent(guild, updated);
-    const message = `オフ会が中止されました: ${updated.name}`;
+    const message = `MeetUpが中止されました: ${updated.name}`;
     await notifyChannel(guild, updated.id, message);
     const notifyTargets = listParticipants(updated.id, ["APPROVED", "APPLIED", "INVITED"]);
     await Promise.all(

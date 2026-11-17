@@ -48,7 +48,7 @@ function makeMeetup(options: {
   const meetup = createMeetup({
     guildId: options.guildId ?? "g1",
     hostId: "host",
-    name: "テストオフ会",
+    name: "テストmeetup",
     description: "",
     capacity: 5,
     startAt: options.startAt ?? Date.now() + 24 * 60 * 60 * 1000,
@@ -131,7 +131,7 @@ test("tick announces due reminders to approved participants only, once", async (
   expect(sent.length).toBe(1);
   const payload = sent[0]!;
   const body = payload.embeds?.[0]?.data.description ?? "";
-  expect(body).toContain("⏰ 3時間後に開催です: テストオフ会");
+  expect(body).toContain("⏰ 3時間後に開催です: テストmeetup");
   expect(body).toContain("開始: <t:");
   expect(body).toContain("集合時間: <t:");
   expect(body).toContain("集合場所: 渋谷駅ハチ公前");
@@ -199,7 +199,7 @@ test("manual remind sends the announcement without touching reminder rows", asyn
 
   expect(sent.length).toBe(1);
   const body = sent[0]!.embeds?.[0]?.data.description ?? "";
-  expect(body).toContain("⏰ リマインド: テストオフ会");
+  expect(body).toContain("⏰ リマインド: テストmeetup");
   expect(body).toContain("集合場所: 渋谷駅ハチ公前");
   expect(sent[0]!.allowedMentions?.users).toEqual(["u1"]);
   expect(replies.length).toBe(1);

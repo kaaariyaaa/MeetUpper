@@ -64,7 +64,7 @@ function fakeInteraction(userId: string) {
 }
 
 test("recover:cancel cancels the meetup, notifies and hides the meeting place", async () => {
-  const meetup = newMeetup("東京オフ会");
+  const meetup = newMeetup("東京meetup");
   setParticipantState(meetup.id, "u1", "APPROVED");
 
   const routed = findButton(`recover:cancel:${meetup.id}`);
@@ -74,14 +74,14 @@ test("recover:cancel cancels the meetup, notifies and hides the meeting place", 
 
   expect(getMeetup(meetup.id)?.state).toBe("CANCELLED");
   expect(updated).toHaveLength(1);
-  expect(JSON.stringify(updated[0])).toContain("オフ会を中止しました");
+  expect(JSON.stringify(updated[0])).toContain("MeetUpを中止しました");
   expect(updated[0]?.components).toEqual([]);
   expect(dms).toEqual(["u1"]);
   expect(JSON.stringify(replies)).not.toContain("秘密の集合場所");
 });
 
 test("recover:cancel rejects non-managers and non-ACTIVE meetups", async () => {
-  const meetup = newMeetup("大阪オフ会");
+  const meetup = newMeetup("大阪meetup");
 
   const guest = fakeInteraction("someone");
   await findButton(`recover:cancel:${meetup.id}`)!.handler(guest.interaction, [`${meetup.id}`]);
@@ -99,7 +99,7 @@ test("recover:cancel rejects non-managers and non-ACTIVE meetups", async () => {
 });
 
 test("recover:keep keeps ACTIVE and clears the buttons", async () => {
-  const meetup = newMeetup("名古屋オフ会");
+  const meetup = newMeetup("名古屋meetup");
   addCohost(meetup.id, "co");
 
   const { interaction, updated } = fakeInteraction("co");

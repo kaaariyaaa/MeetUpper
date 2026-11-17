@@ -62,7 +62,7 @@ bun run start
 Bot をサーバーへ導入したら、サーバー管理者が `/meetupper init` を実行する。次のレイアウトを作成する。
 
 - カテゴリ `MeetUp`
-- フォーラム `オフ会募集`（MeetUp カテゴリの最上部）
+- フォーラム `meetup募集`（MeetUp カテゴリの最上部）
 - テキストチャンネル `招待`（2 番目）
 
 既存の同名チャンネルがある場合は再利用し、権限と並び順を整える。`/meetupper init` は管理者権限を持つユーザーだけが実行できる。セットアップ前に `/meetupper create` や `/meetupper invite` を実行すると、init を促すメッセージが返る。

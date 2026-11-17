@@ -50,7 +50,7 @@ export function inviteEmbed(meetup: Meetup, inviterId: string): EmbedBuilder {
   const description = embed.data.description ?? "";
   return embed
     .setDescription(`${description}\n\n<@${inviterId}> さんから招待されています。`.slice(0, 4000))
-    .setFooter({ text: `オフ会ID: ${meetup.id}` });
+    .setFooter({ text: `MeetUp ID: ${meetup.id}` });
 }
 
 function inviteComponents(meetup: Meetup): ActionRowBuilder<ButtonBuilder>[] {
@@ -149,12 +149,12 @@ function privateThreadOf(interaction: ButtonInteraction) {
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("invite")
-    .setDescription("メンバーをオフ会に招待します")
+    .setDescription("メンバーをMeetUpに招待します")
     .addUserOption((option) =>
       option.setName("user").setDescription("招待するメンバー").setRequired(true),
     )
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）"),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
     ),
   async (interaction) => {
     try {
@@ -171,7 +171,7 @@ subcommand(
 
       const meetup = resolveTargetMeetup(guild, interaction);
       if (meetup.state !== "ACTIVE") {
-        await replyEphemeral(interaction, "終了または中止されたオフ会には招待できません");
+        await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
         return;
       }
 
@@ -242,7 +242,7 @@ subcommand(
               .addFields(
                 { name: "申請者", value: `<@${request.requesterId}>`, inline: true },
                 { name: "招待対象", value: `<@${request.targetId}>`, inline: true },
-                { name: "オフ会", value: meetup.name, inline: true },
+                { name: "meetup", value: meetup.name, inline: true },
               ),
           ],
           components: requestComponents(request.id),
@@ -273,11 +273,11 @@ button(/^invite:accept:(\d+)$/, async (interaction, args) => {
   try {
     const meetup = getMeetup(Number(args[0] ?? ""));
     if (!meetup) {
-      await replyEphemeral(interaction, "オフ会が見つかりません");
+      await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
     if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "このオフ会は現在参加を受け付けていません");
+      await replyEphemeral(interaction, "このMeetUpは現在参加を受け付けていません");
       return;
     }
     if (getParticipant(meetup.id, interaction.user.id)?.state !== "INVITED") {
@@ -322,11 +322,11 @@ button(/^invite:decline:(\d+)$/, async (interaction, args) => {
   try {
     const meetup = getMeetup(Number(args[0] ?? ""));
     if (!meetup) {
-      await replyEphemeral(interaction, "オフ会が見つかりません");
+      await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
     if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "このオフ会は現在参加を受け付けていません");
+      await replyEphemeral(interaction, "このMeetUpは現在参加を受け付けていません");
       return;
     }
     if (getParticipant(meetup.id, interaction.user.id)?.state !== "INVITED") {
@@ -360,11 +360,11 @@ button(/^invite:approve:(\d+)$/, async (interaction, args) => {
     }
     const meetup = getMeetup(request.meetupId);
     if (!meetup || meetup.guildId !== guild.id) {
-      await replyEphemeral(interaction, "オフ会が見つかりません");
+      await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
     if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "終了または中止されたオフ会では操作できません");
+      await replyEphemeral(interaction, "終了または中止されたMeetUpでは操作できません");
       return;
     }
     if (!canManage(meetup, interaction.user.id)) {
@@ -428,11 +428,11 @@ button(/^invite:reject:(\d+)$/, async (interaction, args) => {
     }
     const meetup = getMeetup(request.meetupId);
     if (!meetup || meetup.guildId !== guild.id) {
-      await replyEphemeral(interaction, "オフ会が見つかりません");
+      await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
     if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "終了または中止されたオフ会では操作できません");
+      await replyEphemeral(interaction, "終了または中止されたMeetUpでは操作できません");
       return;
     }
     if (!canManage(meetup, interaction.user.id)) {

@@ -3,7 +3,9 @@ export const config = {
   timeZone: process.env.DEFAULT_TIMEZONE ?? "Asia/Tokyo",
   dbPath: process.env.DB_PATH ?? "data/meetupper.db",
   categoryName: "MeetUp",
-  forumName: "オフ会募集",
+  forumName: "meetup募集",
+  /** Former forum name; the layout lookup accepts it and renames the channel on the next init. */
+  legacyForumName: "オフ会募集",
   inviteName: "招待",
   /** Reminder offsets relative to the event start, in seconds. */
   reminderOffsets: [

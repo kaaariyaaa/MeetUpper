@@ -35,15 +35,15 @@ function recoveryNotice(meetup: Meetup, deletedChannelName: string) {
   const embed = new EmbedBuilder()
     .setTitle("専用チャンネルを再作成しました")
     .setColor(0xe67e22)
-    .setDescription("Discord上で削除されたため再作成しました。このオフ会を中止しますか？")
+    .setDescription("Discord上で削除されたため再作成しました。このMeetUpを中止しますか？")
     .addFields(
-      { name: "オフ会名", value: meetup.name, inline: true },
+      { name: "MeetUp名", value: meetup.name, inline: true },
       { name: "削除されたチャンネル", value: deletedChannelName, inline: true },
     );
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`recover:cancel:${meetup.id}`)
-      .setLabel("オフ会を中止する")
+      .setLabel("MeetUpを中止する")
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
       .setCustomId(`recover:keep:${meetup.id}`)
@@ -62,7 +62,7 @@ async function handleChannelDelete(deleted: { id: string; name: string }, guild:
     channel = await createMeetupChannel(guild, meetup);
     await syncMeetupAccess(guild, getMeetup(meetup.id)!);
   } catch (error) {
-    console.error(`オフ会チャンネルの再作成に失敗しました: meetup=${meetup.id}`, error);
+    console.error(`MeetUpチャンネルの再作成に失敗しました: meetup=${meetup.id}`, error);
     return;
   }
 
@@ -101,12 +101,12 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
     }
     const id = parseMeetupId(args);
     if (id === null) {
-      await replyEphemeral(interaction, "オフ会IDが不正です。");
+      await replyEphemeral(interaction, "MeetUp IDが不正です。");
       return;
     }
     const meetup = getMeetup(id);
     if (!meetup || meetup.guildId !== interaction.guild.id) {
-      await replyEphemeral(interaction, "オフ会が見つかりません。");
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
       return;
     }
     if (!canManage(meetup, interaction.user.id)) {
@@ -114,24 +114,24 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
       return;
     }
     if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, `このオフ会は${meetup.state}のため中止できません。`);
+      await replyEphemeral(interaction, `このMeetUpは${meetup.state}のため中止できません。`);
       return;
     }
 
     const guild = interaction.guild;
     cancelMeetup(meetup);
     const cancelled = getMeetup(id)!;
-    await interaction.update({ embeds: [messageEmbed("オフ会を中止しました")], components: [] });
+    await interaction.update({ embeds: [messageEmbed("MeetUpを中止しました")], components: [] });
 
     await cancelEvent(guild, cancelled);
     await sendToMeetupChannel(guild, cancelled, {
-      content: `オフ会「${cancelled.name}」は中止されました。`,
+      content: `MeetUp「${cancelled.name}」は中止されました。`,
     });
     for (const participant of listParticipants(id, ["APPROVED", "APPLIED", "INVITED"])) {
       await tryDM(
         interaction.client,
         participant.userId,
-        `参加していたオフ会「${cancelled.name}」は中止されました。`,
+        `参加していたMeetUp「${cancelled.name}」は中止されました。`,
       );
     }
   } catch (error) {
@@ -147,12 +147,12 @@ button(/^recover:keep:(\d+)$/, async (interaction: ButtonInteraction, args) => {
     }
     const id = parseMeetupId(args);
     if (id === null) {
-      await replyEphemeral(interaction, "オフ会IDが不正です。");
+      await replyEphemeral(interaction, "MeetUp IDが不正です。");
       return;
     }
     const meetup = getMeetup(id);
     if (!meetup || meetup.guildId !== interaction.guild.id) {
-      await replyEphemeral(interaction, "オフ会が見つかりません。");
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
       return;
     }
     if (!canManage(meetup, interaction.user.id)) {

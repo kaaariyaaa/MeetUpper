@@ -13,7 +13,7 @@ await loadFeatures();
 
 const meetupCommand = new SlashCommandBuilder()
   .setName("meetupper")
-  .setDescription("オフ会の作成・参加・運営を行います")
+  .setDescription("MeetUpの作成・参加・運営を行います")
   .setDMPermission(false);
 for (const entry of getSubcommands()) meetupCommand.addSubcommand(entry.builder);
 const commandJson = meetupCommand.toJSON();

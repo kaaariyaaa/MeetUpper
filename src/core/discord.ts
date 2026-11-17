@@ -66,7 +66,11 @@ export function setupRequiredMessage(guild: Guild): string {
   return SETUP_REQUIRED_MESSAGE;
 }
 
-/** True when the MeetUp category, オフ会募集 forum and 招待 channel all exist. */
+function isForumName(name: string): boolean {
+  return name === config.forumName || name === config.legacyForumName;
+}
+
+/** True when the MeetUp category, MeetUp募集 forum and 招待 channel all exist. */
 export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
   const find = () => {
     const category = guild.channels.cache.find(
@@ -78,7 +82,7 @@ export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
       (channel) =>
         channel.parentId === category.id &&
         channel.type === ChannelType.GuildForum &&
-        channel.name === config.forumName,
+        isForumName(channel.name),
     );
     const hasInvite = guild.channels.cache.some(
       (channel) =>
@@ -133,13 +137,13 @@ export function resolveTargetMeetup(guild: Guild, interaction: ChatInputCommandI
   const id = interaction.options.getInteger("meetup");
   if (id !== null) {
     const meetup = getMeetup(id);
-    if (!meetup || meetup.guildId !== guild.id) throw new Error("オフ会が見つかりません。");
+    if (!meetup || meetup.guildId !== guild.id) throw new Error("MeetUpが見つかりません。");
     return meetup;
   }
   const meetup = meetupFromInteraction(interaction);
   if (!meetup || meetup.guildId !== guild.id) {
     throw new Error(
-      "オフ会IDを指定するか、オフ会の専用チャンネルまたは募集スレッド内で実行してください。",
+      "MeetUp IDを指定するか、MeetUpの専用チャンネルまたは募集スレッド内で実行してください。",
     );
   }
   return meetup;
@@ -175,7 +179,7 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
     (channel): channel is ForumChannel =>
       channel.parentId === category!.id &&
       channel.type === ChannelType.GuildForum &&
-      channel.name === config.forumName,
+      isForumName(channel.name),
   );
   if (!forum) {
     forum = await guild.channels.create({
@@ -183,6 +187,10 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
       type: ChannelType.GuildForum,
       parent: category.id,
     });
+  }
+
+  if (forum.name !== config.forumName) {
+    await forum.setName(config.forumName).catch(() => undefined);
   }
 
   let inviteChannel = guild.channels.cache.find(

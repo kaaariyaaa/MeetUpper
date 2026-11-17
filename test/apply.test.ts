@@ -18,7 +18,7 @@ function newMeetup(overrides: Partial<CreateMeetupInput> = {}) {
   return createMeetup({
     guildId: "guild",
     hostId: "host",
-    name: "テストオフ会",
+    name: "テストmeetup",
     description: "test",
     capacity: 2,
     startAt: Date.now() + 24 * 60 * 60 * 1000,
@@ -109,5 +109,5 @@ test("application panel exposes capacity, approval mode and buttons", () => {
 test("kicked participants cannot re-apply", () => {
   const meetup = newMeetup();
   setParticipantState(meetup.id, "kicked-user", "KICKED");
-  expect(applicationDenial(meetup, "kicked-user")).toBe("このオフ会からは退出させられています");
+  expect(applicationDenial(meetup, "kicked-user")).toBe("このMeetUpからは退出させられています");
 });

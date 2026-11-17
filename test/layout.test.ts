@@ -35,7 +35,11 @@ interface Edit {
   options: Record<string, unknown>;
 }
 
-function makeChannel(data: FakeChannelData, viewable: boolean, sink?: { edits: Edit[]; cleared: string[] }) {
+function makeChannel(
+  data: FakeChannelData,
+  viewable: boolean,
+  sink?: { edits: Edit[]; cleared: string[]; renamed: { id: string; name: string }[] },
+) {
   return {
     ...data,
     position: 0,
@@ -55,13 +59,18 @@ function makeChannel(data: FakeChannelData, viewable: boolean, sink?: { edits: E
     },
     permissionsFor: () => (viewable ? VIEW : NONE),
     setPosition: async () => undefined,
+    setName: async (name: string) => {
+      sink?.renamed.push({ id: data.id, name });
+      data.name = name;
+    },
   };
 }
 
 function makeGuild(botPermissions: PermissionsBitField = ALL_LAYOUT) {
   const edits: Edit[] = [];
   const cleared: string[] = [];
-  const sink = { edits, cleared };
+  const renamed: { id: string; name: string }[] = [];
+  const sink = { edits, cleared, renamed };
   const cache = new Collection<string, ReturnType<typeof makeChannel>>();
   const created: { type: ChannelType; name: string; parent?: string; permissionOverwrites?: unknown[] }[] = [];
   let id = 0;
@@ -85,7 +94,7 @@ function makeGuild(botPermissions: PermissionsBitField = ALL_LAYOUT) {
       },
     },
   };
-  return { guild: guild as never, created, cache, edits, cleared, makeChannel: (data: FakeChannelData, viewable: boolean) => makeChannel(data, viewable, sink) };
+  return { guild: guild as never, created, cache, edits, cleared, renamed, makeChannel: (data: FakeChannelData, viewable: boolean) => makeChannel(data, viewable, sink) };
 }
 
 test("init refuses to create channels in a category the bot cannot view", async () => {
@@ -127,7 +136,7 @@ test("existing layout channels drop per-channel overwrites and inherit the categ
     channel({ id: "cat", name: "MeetUp", type: ChannelType.GuildCategory, parentId: null }, true),
   );
   const forum = channel(
-    { id: "forum", name: "オフ会募集", type: ChannelType.GuildForum, parentId: "cat" },
+    { id: "forum", name: "meetup募集", type: ChannelType.GuildForum, parentId: "cat" },
     true,
   );
   const invite = channel({ id: "invite", name: "招待", type: ChannelType.GuildText, parentId: "cat" }, true);
@@ -154,8 +163,29 @@ test("init names the permission the bot is missing instead of failing silently",
 
 test("meetup channel names are the meetup name only", () => {
   const name = (value: string) => channelSlug({ name: value } as never);
-  expect(name(" 東京 オフ会 ")).toBe("東京-オフ会");
+  expect(name(" 東京 meetup ")).toBe("東京-meetup");
   expect(name("test!")).toBe("test");
   expect(name("")).toBe("offkai");
   expect(name("x")).toBe("offkai");
+});
+
+test("init renames the old-name forum instead of creating a duplicate", async () => {
+  const { guild, cache, created, renamed, makeChannel: channel } = makeGuild();
+  cache.set(
+    "cat",
+    channel({ id: "cat", name: "MeetUp", type: ChannelType.GuildCategory, parentId: null }, true),
+  );
+  cache.set(
+    "forum",
+    channel({ id: "forum", name: "オフ会募集", type: ChannelType.GuildForum, parentId: "cat" }, true),
+  );
+  cache.set(
+    "invite",
+    channel({ id: "invite", name: "招待", type: ChannelType.GuildText, parentId: "cat" }, true),
+  );
+
+  await ensureLayout(guild);
+
+  expect(created).toHaveLength(0);
+  expect(renamed).toEqual([{ id: "forum", name: "meetup募集" }]);
 });

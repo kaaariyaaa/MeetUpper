@@ -37,7 +37,7 @@ import { discordTimestamp } from "../core/time.ts";
 import type { Meetup } from "../core/types.ts";
 import { capacityLabel } from "../core/views.ts";
 
-const NOT_RECRUITING = "このオフ会は現在募集していません";
+const NOT_RECRUITING = "このMeetUpは現在募集していません";
 
 /** Returns the reason this user cannot apply, or null when they may apply. */
 export function applicationDenial(meetup: Meetup, userId: string): string | null {
@@ -54,7 +54,7 @@ export function applicationDenial(meetup: Meetup, userId: string): string | null
     case "REJECTED":
       return "参加申請は却下されています";
     case "KICKED":
-      return "このオフ会からは退出させられています";
+      return "このMeetUpからは退出させられています";
   }
 
   if (meetup.mode === "PRIVATE") {
@@ -161,7 +161,7 @@ function resultEmbed(
     .setColor(approved ? 0x2ecc71 : 0xe74c3c)
     .setDescription(lines.join("\n"))
     .addFields(
-      { name: "オフ会", value: meetup.name, inline: true },
+      { name: "meetup", value: meetup.name, inline: true },
       { name: "対応者", value: `<@${actorId}>`, inline: true },
     );
 }
@@ -286,9 +286,9 @@ async function confirmApproval(
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("apply")
-    .setDescription("オフ会に参加申請します")
+    .setDescription("MeetUpに参加申請します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（募集スレッド内なら省略可）").setMinValue(1),
+      option.setName("meetup").setDescription("MeetUp ID（募集スレッド内なら省略可）").setMinValue(1),
     ),
   async (interaction) => {
     const id = interaction.options.getInteger("meetup");
@@ -300,7 +300,7 @@ subcommand(
     if (!meetup) {
       await replyEphemeral(
         interaction,
-        "オフ会IDを指定するか、募集スレッドまたは専用チャンネル内で実行してください。",
+        "MeetUp IDを指定するか、募集スレッドまたは専用チャンネル内で実行してください。",
       );
       return;
     }
@@ -384,7 +384,7 @@ button(/^apply:vote:(\d+):(\d+)$/, async (interaction, args) => {
     if (!context) return;
     const { meetup } = context;
     if (meetup.approvalMode !== "VOTE") {
-      await replyEphemeral(interaction, "このオフ会は参加者投票ではありません");
+      await replyEphemeral(interaction, "このMeetUpは参加者投票ではありません");
       return;
     }
     if (interaction.user.id === applicantId) {

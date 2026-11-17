@@ -107,7 +107,7 @@ subcommand(
     .setName("remind")
     .setDescription("参加確定者にリマインドを送信します")
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("オフ会ID（専用チャンネル内なら省略可）").setMinValue(1),
+      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）").setMinValue(1),
     ),
   async (interaction) => {
     if (!interaction.guild) {
@@ -122,7 +122,7 @@ subcommand(
         return;
       }
       if (meetup.state !== "ACTIVE") {
-        await replyEphemeral(interaction, "ACTIVEのオフ会にのみリマインドを送信できます。");
+        await replyEphemeral(interaction, "ACTIVEのMeetUpにのみリマインドを送信できます。");
         return;
       }
       const approved = listParticipants(meetup.id, ["APPROVED"]);
@@ -132,7 +132,7 @@ subcommand(
       }
       const sent = await sendAnnouncement(interaction.client, meetup, approved, "リマインド");
       if (!sent) {
-        await replyEphemeral(interaction, "オフ会チャンネルが見つかりません。");
+        await replyEphemeral(interaction, "MeetUpチャンネルが見つかりません。");
         return;
       }
       await replyEphemeral(interaction, "リマインドを送信しました");
