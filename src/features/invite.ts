@@ -7,6 +7,9 @@ import {
   SlashCommandSubcommandBuilder,
   type ButtonInteraction,
   type Guild,
+  type RepliableInteraction,
+  type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from "discord.js";
 import {
   announceJoin,
@@ -14,13 +17,11 @@ import {
   deferEphemeral,
   deleteThread,
   fetchMember,
+  meetupFromInteraction,
   messageEmbed,
-  isLayoutInitialized,
   replyEphemeral,
   replyError,
-  resolveTargetMeetup,
   sendToMeetupChannel,
-  setupRequiredMessage,
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
@@ -36,10 +37,21 @@ import {
   getParticipant,
   hasPendingInviteRequest,
   listCohosts,
+  listMeetups,
   setParticipantState,
 } from "../core/meetup.ts";
-import { button, subcommand } from "../core/registry.ts";
+import { button, selectMenu, subcommand } from "../core/registry.ts";
 import type { InviteRequest, Meetup } from "../core/types.ts";
+import {
+  confirmButtons,
+  createUiSession,
+  dropUiSession,
+  getUiSession,
+  meetupSelectRow,
+  selectedNumber,
+  userSelectRow,
+  type UiSession,
+} from "../core/ui.ts";
 import { meetupEmbed } from "../core/views.ts";
 
 type InviteDelivery = "DM" | "THREAD" | "FAILED";
@@ -146,15 +158,164 @@ function privateThreadOf(interaction: ButtonInteraction) {
   return channel && channel.type === ChannelType.PrivateThread ? channel : null;
 }
 
+interface InviteFlowData {
+  meetupId: number | null;
+  targetId?: string;
+}
+
+const EXPIRED_MESSAGE = "この操作は期限切れです。もう一度コマンドからやり直してください。";
+
+/** Host/cohost invites directly; an approved participant routes through host approval. */
+export function canInvite(meetup: Meetup, userId: string): boolean {
+  return canManage(meetup, userId) || getParticipant(meetup.id, userId)?.state === "APPROVED";
+}
+
+const INVITE_PERMISSION_MESSAGE =
+  "参加確定者のみ招待できます（主催者・共同主催者は直接招待できます）";
+
+/** Why this target cannot be invited by this actor, or null when allowed. */
+export function inviteTargetDenial(
+  meetup: Meetup,
+  actorId: string,
+  target: { id: string; bot?: boolean },
+): string | null {
+  if (!canInvite(meetup, actorId)) return INVITE_PERMISSION_MESSAGE;
+  if (target.id === actorId) return "自分自身を招待することはできません";
+  if (target.bot) return "Botを招待することはできません";
+  if (target.id === meetup.hostId) return "主催者はすでに参加しています";
+  if (listCohosts(meetup.id).includes(target.id)) return "共同主催者はすでに参加しています";
+  const existing = getParticipant(meetup.id, target.id)?.state;
+  if (existing === "APPROVED") return "すでに参加が確定しています";
+  if (existing === "INVITED") return "すでに招待済みです";
+  if (existing === "APPLIED") return "すでに参加申請中です";
+  return null;
+}
+
+function userSelectPanel(meetup: Meetup, sessionId: string) {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("招待するメンバーを選択")
+        .setColor(0x5865f2)
+        .setDescription(`「${meetup.name}」に招待するメンバーを選択してください。`),
+    ],
+    components: [userSelectRow(`people:invite-target:${sessionId}`)],
+  };
+}
+
+function confirmationPanel(meetup: Meetup, targetId: string, actorId: string, sessionId: string) {
+  const direct = canManage(meetup, actorId);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("招待の確認")
+        .setColor(0xf1c40f)
+        .setDescription(
+          [
+            `<@${targetId}> を「${meetup.name}」に招待します。`,
+            direct
+              ? "招待DMを送信します（届かない場合は招待チャンネルのプライベートスレッドに投稿します）。"
+              : "参加確定者からの招待のため、主催者へ招待申請を送ります。",
+          ].join("\n"),
+        )
+        .addFields(
+          { name: "MeetUp", value: meetup.name, inline: true },
+          { name: "対象", value: `<@${targetId}>`, inline: true },
+        ),
+    ],
+    components: [
+      confirmButtons(
+        `people:invite-confirm:${sessionId}`,
+        `people:invite-cancel:${sessionId}`,
+        "招待する",
+        "キャンセル",
+      ),
+    ],
+  };
+}
+
+async function openInvitePanel(
+  interaction: RepliableInteraction,
+  meetup: Meetup,
+): Promise<void> {
+  const session = createUiSession<InviteFlowData>({
+    ownerId: interaction.user.id,
+    guildId: meetup.guildId,
+    meetupId: meetup.id,
+    data: { meetupId: meetup.id },
+  });
+  await replyEphemeral(interaction, userSelectPanel(meetup, session.id));
+}
+
+async function openMeetupPicker(interaction: RepliableInteraction, guild: Guild): Promise<void> {
+  const choices = listMeetups(guild.id, ["ACTIVE"]).filter((meetup) =>
+    canInvite(meetup, interaction.user.id),
+  );
+  if (choices.length === 0) {
+    await replyEphemeral(interaction, "招待できるMeetUpがありません");
+    return;
+  }
+  const session = createUiSession<InviteFlowData>({
+    ownerId: interaction.user.id,
+    guildId: guild.id,
+    meetupId: null,
+    data: { meetupId: null },
+  });
+  await replyEphemeral(interaction, {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("MeetUpを選択")
+        .setColor(0x5865f2)
+        .setDescription("招待するMeetUpを選択してください。"),
+    ],
+    components: [meetupSelectRow(`people:invite-meetup:${session.id}`, choices.map((meetup) => ({ meetup })))],
+  });
+}
+
+async function submitInviteRequest(
+  guild: Guild,
+  meetup: Meetup,
+  requesterId: string,
+  targetId: string,
+): Promise<boolean> {
+  if (hasPendingInviteRequest(meetup.id, targetId)) return false;
+  const request = createInviteRequest(meetup.id, requesterId, targetId);
+  const sent = await sendToMeetupChannel(guild, meetup, {
+    content: `${adminMentions(meetup)}\n<@${requesterId}> さんから招待申請が届きました。`,
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("招待申請")
+        .setColor(0xf1c40f)
+        .addFields(
+          { name: "申請者", value: `<@${request.requesterId}>`, inline: true },
+          { name: "招待対象", value: `<@${request.targetId}>`, inline: true },
+          { name: "meetup", value: meetup.name, inline: true },
+        ),
+    ],
+    components: requestComponents(request.id),
+  });
+  if (!sent) decideInviteRequest(request.id, "REJECTED", requesterId);
+  return sent;
+}
+
+function meetupForSession(
+  interaction: StringSelectMenuInteraction,
+  session: UiSession<InviteFlowData>,
+): Meetup | null {
+  const guild = interaction.guild;
+  const meetup = session.data.meetupId === null ? null : getMeetup(session.data.meetupId);
+  return guild && meetup && meetup.guildId === guild.id ? meetup : null;
+}
+
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("invite")
     .setDescription("メンバーをMeetUpに招待します")
-    .addUserOption((option) =>
-      option.setName("user").setDescription("招待するメンバー").setRequired(true),
-    )
     .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル内なら省略可）"),
+      option
+        .setName("meetup")
+        .setDescription("MeetUp ID（専用チャンネル内なら省略可）")
+        .setMinValue(1),
     ),
   async (interaction) => {
     try {
@@ -164,110 +325,237 @@ subcommand(
         return;
       }
       await deferEphemeral(interaction);
-      if (!(await isLayoutInitialized(guild))) {
-        await replyEphemeral(interaction, setupRequiredMessage(guild));
-        return;
-      }
 
-      const meetup = resolveTargetMeetup(guild, interaction);
-      if (meetup.state !== "ACTIVE") {
-        await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
+      const id = interaction.options.getInteger("meetup");
+      const context = id === null ? meetupFromInteraction(interaction) : null;
+      const meetup = id !== null ? getMeetup(id) : context;
+      if (id !== null && (!meetup || meetup.guildId !== guild.id)) {
+        await replyEphemeral(interaction, "MeetUpが見つかりません");
         return;
       }
-
-      const target = interaction.options.getUser("user", true);
-      const actorId = interaction.user.id;
-      const existing = getParticipant(meetup.id, target.id)?.state;
-
-      if (target.id === actorId) {
-        await replyEphemeral(interaction, "自分自身を招待することはできません");
-        return;
-      }
-      if (target.bot) {
-        await replyEphemeral(interaction, "Botを招待することはできません");
-        return;
-      }
-      if (target.id === meetup.hostId) {
-        await replyEphemeral(interaction, "主催者はすでに参加しています");
-        return;
-      }
-      if (listCohosts(meetup.id).includes(target.id)) {
-        await replyEphemeral(interaction, "共同主催者はすでに参加しています");
-        return;
-      }
-      if (existing === "APPROVED") {
-        await replyEphemeral(interaction, "すでに参加が確定しています");
-        return;
-      }
-      if (existing === "INVITED") {
-        await replyEphemeral(interaction, "すでに招待済みです");
-        return;
-      }
-      if (existing === "APPLIED") {
-        await replyEphemeral(interaction, "すでに参加申請中です");
-        return;
-      }
-
-      if (canManage(meetup, actorId)) {
-        const previous = getParticipant(meetup.id, target.id);
-        setParticipantState(meetup.id, target.id, "INVITED", { invitedBy: actorId });
-        const delivery = await deliverInvite(guild, meetup, target.id, actorId);
-        if (delivery === "FAILED") {
-          // A failed delivery must not lock the target into 招待中 forever.
-          if (previous) setParticipantState(meetup.id, target.id, previous.state);
-          else deleteParticipant(meetup.id, target.id);
-        }
-        const detail =
-          delivery === "DM"
-            ? "招待DMを送信しました"
-            : delivery === "THREAD"
-              ? "DMを送信できなかったため、招待チャンネルのプライベートスレッドで招待しました"
-              : "DMもスレッドも送信できませんでした";
-        await replyEphemeral(interaction, `<@${target.id}> への${detail}`);
-        return;
-      }
-
-      if (getParticipant(meetup.id, actorId)?.state === "APPROVED") {
-        if (hasPendingInviteRequest(meetup.id, target.id)) {
-          await replyEphemeral(interaction, "この対象への招待申請はすでに承認待ちです");
+      if (meetup) {
+        if (meetup.guildId !== guild.id) {
+          await replyEphemeral(interaction, "MeetUpが見つかりません");
           return;
         }
-        const request = createInviteRequest(meetup.id, actorId, target.id);
-        const sent = await sendToMeetupChannel(guild, meetup, {
-          content: `${adminMentions(meetup)}\n<@${actorId}> さんから招待申請が届きました。`,
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("招待申請")
-              .setColor(0xf1c40f)
-              .addFields(
-                { name: "申請者", value: `<@${request.requesterId}>`, inline: true },
-                { name: "招待対象", value: `<@${request.targetId}>`, inline: true },
-                { name: "meetup", value: meetup.name, inline: true },
-              ),
-          ],
-          components: requestComponents(request.id),
-        });
-        if (!sent) {
-          decideInviteRequest(request.id, "REJECTED", actorId);
-          await replyEphemeral(
-            interaction,
-            "招待申請を専用チャンネルへ投稿できませんでした。主催者へ直接確認してください。",
-          );
+        if (meetup.state !== "ACTIVE") {
+          await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
           return;
         }
-        await replyEphemeral(interaction, "主催者へ招待申請を送りました");
+        if (!canInvite(meetup, interaction.user.id)) {
+          await replyEphemeral(interaction, INVITE_PERMISSION_MESSAGE);
+          return;
+        }
+        await openInvitePanel(interaction, meetup);
         return;
       }
-
-      await replyEphemeral(
-        interaction,
-        "参加確定者のみ招待できます（主催者・共同主催者は直接招待できます）",
-      );
+      await openMeetupPicker(interaction, guild);
     } catch (error) {
       await replyError(interaction, error);
     }
   },
 );
+
+button(/^people:invite-open:(\d+)$/, async (interaction, args) => {
+  try {
+    const guild = interaction.guild;
+    if (!guild) {
+      await replyEphemeral(interaction, "サーバー内でのみ実行できます");
+      return;
+    }
+    const meetup = getMeetup(Number(args[0] ?? ""));
+    if (!meetup || meetup.guildId !== guild.id) {
+      await replyEphemeral(interaction, "MeetUpが見つかりません");
+      return;
+    }
+    if (meetup.state !== "ACTIVE") {
+      await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
+      return;
+    }
+    if (!canInvite(meetup, interaction.user.id)) {
+      await replyEphemeral(interaction, INVITE_PERMISSION_MESSAGE);
+      return;
+    }
+    await openInvitePanel(interaction, meetup);
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+selectMenu(/^people:invite-meetup:([0-9a-z]+)$/, async (interaction, args) => {
+  try {
+    const sessionId = args[0];
+    if (!sessionId) return;
+    const session = getUiSession<InviteFlowData>(interaction, sessionId);
+    if (!session) {
+      await replyEphemeral(interaction, EXPIRED_MESSAGE);
+      return;
+    }
+    const guild = interaction.guild;
+    const meetupId = selectedNumber(interaction);
+    const meetup = meetupId === null ? null : getMeetup(meetupId);
+    if (
+      !guild ||
+      !meetup ||
+      meetup.guildId !== guild.id ||
+      meetup.state !== "ACTIVE" ||
+      !canInvite(meetup, interaction.user.id)
+    ) {
+      await replyEphemeral(interaction, "このMeetUpには招待できません");
+      return;
+    }
+    session.meetupId = meetup.id;
+    session.data = { meetupId: meetup.id };
+    await interaction.update(userSelectPanel(meetup, session.id));
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+selectMenu(/^people:invite-target:([0-9a-z]+)$/, async (interaction, args) => {
+  try {
+    const sessionId = args[0];
+    if (!sessionId) return;
+    const session = getUiSession<InviteFlowData>(interaction, sessionId);
+    if (!session) {
+      await replyEphemeral(interaction, EXPIRED_MESSAGE);
+      return;
+    }
+    const meetup = meetupForSession(interaction, session);
+    if (!meetup || meetup.state !== "ACTIVE") {
+      await replyEphemeral(interaction, "このMeetUpには招待できません");
+      return;
+    }
+    const target = (interaction as unknown as UserSelectMenuInteraction).users.first();
+    if (!target) {
+      await replyEphemeral(interaction, "対象のメンバーを選択してください");
+      return;
+    }
+    const denial = inviteTargetDenial(meetup, interaction.user.id, target);
+    if (denial) {
+      await interaction.update({
+        embeds: [messageEmbed(denial)],
+        components: [userSelectRow(`people:invite-target:${session.id}`)],
+      });
+      return;
+    }
+    session.data = { meetupId: meetup.id, targetId: target.id };
+    await interaction.update(
+      confirmationPanel(meetup, target.id, interaction.user.id, session.id),
+    );
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+button(/^people:invite-confirm:([0-9a-z]+)$/, async (interaction, args) => {
+  try {
+    const sessionId = args[0];
+    if (!sessionId) return;
+    const session = getUiSession<InviteFlowData>(interaction, sessionId);
+    if (!session) {
+      await replyEphemeral(interaction, EXPIRED_MESSAGE);
+      return;
+    }
+    await interaction.deferUpdate();
+    const guild = interaction.guild;
+    const meetup = session.data.meetupId === null ? null : getMeetup(session.data.meetupId);
+    if (!guild || !meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
+      await replyEphemeral(interaction, "このMeetUpには招待できません");
+      return;
+    }
+    const targetId = session.data.targetId;
+    if (!targetId) {
+      await replyEphemeral(interaction, "招待するメンバーを選択してください");
+      return;
+    }
+    const target = await interaction.client.users.fetch(targetId).catch(() => null);
+    if (!target) {
+      dropUiSession(session.id);
+      await interaction.editReply({
+        embeds: [messageEmbed("対象のユーザーが見つかりません")],
+        components: [],
+      });
+      return;
+    }
+    const denial = inviteTargetDenial(meetup, interaction.user.id, target);
+    if (denial) {
+      dropUiSession(session.id);
+      await interaction.editReply({ embeds: [messageEmbed(denial)], components: [] });
+      return;
+    }
+
+    dropUiSession(session.id);
+    if (canManage(meetup, interaction.user.id)) {
+      const previous = getParticipant(meetup.id, targetId);
+      setParticipantState(meetup.id, targetId, "INVITED", { invitedBy: interaction.user.id });
+      const delivery = await deliverInvite(guild, meetup, targetId, interaction.user.id);
+      if (delivery === "FAILED") {
+        // A failed delivery must not lock the target into 招待中 forever.
+        if (previous) setParticipantState(meetup.id, targetId, previous.state);
+        else deleteParticipant(meetup.id, targetId);
+      }
+      const detail =
+        delivery === "DM"
+          ? "招待DMを送信しました"
+          : delivery === "THREAD"
+            ? "DMを送信できなかったため、招待チャンネルのプライベートスレッドで招待しました"
+            : "DMもスレッドも送信できませんでした";
+      await interaction.editReply({
+        embeds: [messageEmbed(`<@${targetId}> への${detail}`)],
+        components: [],
+      });
+      return;
+    }
+
+    if (getParticipant(meetup.id, interaction.user.id)?.state !== "APPROVED") {
+      await interaction.editReply({
+        embeds: [messageEmbed(INVITE_PERMISSION_MESSAGE)],
+        components: [],
+      });
+      return;
+    }
+    if (hasPendingInviteRequest(meetup.id, targetId)) {
+      await interaction.editReply({
+        embeds: [messageEmbed("この対象への招待申請はすでに承認待ちです")],
+        components: [],
+      });
+      return;
+    }
+    const sent = await submitInviteRequest(guild, meetup, interaction.user.id, targetId);
+    await interaction.editReply({
+      embeds: [
+        messageEmbed(
+          sent
+            ? "主催者へ招待申請を送りました"
+            : "招待申請を専用チャンネルへ投稿できませんでした。主催者へ直接確認してください。",
+        ),
+      ],
+      components: [],
+    });
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+button(/^people:invite-cancel:([0-9a-z]+)$/, async (interaction, args) => {
+  try {
+    const sessionId = args[0];
+    if (!sessionId) return;
+    const session = getUiSession<InviteFlowData>(interaction, sessionId);
+    if (!session) {
+      await replyEphemeral(interaction, EXPIRED_MESSAGE);
+      return;
+    }
+    dropUiSession(session.id);
+    await interaction.update({
+      embeds: [messageEmbed("招待をキャンセルしました")],
+      components: [],
+    });
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 button(/^invite:accept:(\d+)$/, async (interaction, args) => {
   try {
