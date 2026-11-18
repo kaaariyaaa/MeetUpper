@@ -3,9 +3,12 @@
 // not conflict on this file.
 import "./init.ts";
 import "./create.ts";
+import "./browse.ts";
 import "./apply.ts";
 import "./invite.ts";
-import "./manage.ts";
+import "./people.ts";
+import "./edit.ts";
+import "./ops.ts";
 import "./recovery.ts";
 import "./reminder.ts";
 

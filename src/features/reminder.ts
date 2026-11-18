@@ -11,6 +11,7 @@ import {
   TextInputStyle,
   Events as DiscordEvents,
   type ButtonInteraction,
+  type ChatInputCommandInteraction,
   type MessageActionRowComponentBuilder,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
@@ -347,6 +348,38 @@ async function updateHistory(
   });
 }
 
+async function openReminderPanel(
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  meetup: Meetup,
+): Promise<void> {
+  if (!canManage(meetup, interaction.user.id)) {
+    await replyEphemeral(interaction, "主催者または共同主催者のみ設定を変更できます。");
+    return;
+  }
+  if (meetup.state !== "ACTIVE") {
+    await replyEphemeral(interaction, "ACTIVEなMeetUpのみ設定を変更できます。");
+    return;
+  }
+  cleanupDrafts();
+  const settings = getReminderSettings(meetup.id);
+  const offsets = getReminderOffsets(meetup.id);
+  const draft: Draft = {
+    id: newSessionId(),
+    meetupId: meetup.id,
+    guildId: meetup.guildId,
+    ownerId: interaction.user.id,
+    version: settings.version,
+    enabled: settings.enabled,
+    offsets,
+    expiresAt: Date.now() + DRAFT_TTL_MS,
+  };
+  drafts.set(draft.id, draft);
+  await replyEphemeral(interaction, {
+    embeds: [panelEmbed(meetup, draft)],
+    components: panelComponents(draft),
+  });
+}
+
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("reminder")
@@ -362,37 +395,25 @@ subcommand(
     await deferEphemeral(interaction);
     try {
       const meetup = resolveTargetMeetup(interaction.guild, interaction);
-      if (!canManage(meetup, interaction.user.id)) {
-        await replyEphemeral(interaction, "主催者または共同主催者のみ設定を変更できます。");
-        return;
-      }
-      if (meetup.state !== "ACTIVE") {
-        await replyEphemeral(interaction, "ACTIVEなMeetUpのみ設定を変更できます。");
-        return;
-      }
-      cleanupDrafts();
-      const settings = getReminderSettings(meetup.id);
-      const offsets = getReminderOffsets(meetup.id);
-      const draft: Draft = {
-        id: newSessionId(),
-        meetupId: meetup.id,
-        guildId: meetup.guildId,
-        ownerId: interaction.user.id,
-        version: settings.version,
-        enabled: settings.enabled,
-        offsets,
-        expiresAt: Date.now() + DRAFT_TTL_MS,
-      };
-      drafts.set(draft.id, draft);
-      await replyEphemeral(interaction, {
-        embeds: [panelEmbed(meetup, draft)],
-        components: panelComponents(draft),
-      });
+      await openReminderPanel(interaction, meetup);
     } catch (error) {
       await replyError(interaction, error);
     }
   },
 );
+
+button(/^reminder:open:(\d+)$/, async (interaction, args) => {
+  try {
+    const meetup = getMeetup(Number(args[0]));
+    if (!meetup || meetup.guildId !== interaction.guildId) {
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
+      return;
+    }
+    await openReminderPanel(interaction, meetup);
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 button(/^reminder:toggle:([A-Za-z0-9]+)$/, async (interaction) => {
   const resolved = await resolveDraft(interaction);
