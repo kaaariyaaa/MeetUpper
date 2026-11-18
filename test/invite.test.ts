@@ -20,6 +20,8 @@ const {
   updateMeetup,
 } = await import("../src/core/meetup.ts");
 const { inviteEmbed, inviteTargetDenial } = await import("../src/features/invite.ts");
+const { closeParticipationMessages, listParticipationMessages, recordParticipationMessage } =
+  await import("../src/core/participation.ts");
 
 function inviteSubcommand() {
   return getSubcommands().find((entry) => entry.name === "invite");
@@ -118,6 +120,7 @@ test("invite UI sends a confirmation and delivers the invite DM", async () => {
           id,
           send: async (payload: unknown) => {
             userMessages.push(payload);
+            return { id: "dm-msg", channelId: "dm-chan" };
           },
         }),
       },
@@ -197,6 +200,172 @@ test("invite UI sends a confirmation and delivers the invite DM", async () => {
   expect(getParticipant(meetup.id, "u-target")?.state).toBe("INVITED");
   expect(userMessages).toHaveLength(1);
   expect(JSON.stringify(updates.at(-1)?.payload)).toContain("招待DMを送信しました");
+  const rows = listParticipationMessages(meetup.id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    kind: "invite",
+    channelId: "dm-chan",
+    messageId: "dm-msg",
+  });
+});
+
+test("the invite request panel is recorded when an approved participant invites", async () => {
+  const meetup = createMeetup({
+    guildId: "g-request",
+    hostId: "host",
+    name: "招待申請パネル",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PRIVATE",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  updateMeetup(meetup.id, { channelId: "chan-request" });
+  setParticipantState(meetup.id, "u-approved", "APPROVED");
+
+  const channelMessages: unknown[] = [];
+  const channel = {
+    id: "chan-request",
+    type: ChannelType.GuildText,
+    send: async (payload: unknown) => {
+      channelMessages.push(payload);
+      return { id: "msg-request", channelId: "chan-request" };
+    },
+    permissionOverwrites: { cache: new Map(), edit: async () => undefined, delete: async () => undefined },
+  };
+  const guild = {
+    id: "g-request",
+    client: {
+      user: { id: "bot" },
+      users: { fetch: async (id: string) => ({ id, send: async () => ({ id: "dm", channelId: "dm" }) }) },
+    },
+    roles: { everyone: { id: "everyone" } },
+    members: { me: { id: "bot" }, fetch: async () => ({ id: "u-target" }) },
+    channels: { fetch: async (id: string) => (id === "chan-request" ? channel : null) },
+  };
+
+  const replies: { payload?: Record<string, unknown> }[] = [];
+  const entryInteraction = {
+    user: { id: "u-approved" },
+    guild,
+    guildId: guild.id,
+    client: guild.client,
+    deferred: false,
+    replied: false,
+    reply: async (payload: Record<string, unknown>) => {
+      replies.push({ payload });
+    },
+    editReply: async () => undefined,
+    followUp: async () => undefined,
+  };
+  const open = findButton(`people:invite-open:${meetup.id}`)!;
+  await open.handler(entryInteraction as never, open.args);
+  const selectId = JSON.stringify(replies[0]?.payload).match(/people:invite-target:[0-9a-z]+/)?.[0];
+  expect(selectId).toBeDefined();
+
+  const updates: { payload?: Record<string, unknown> }[] = [];
+  const selectInteraction = {
+    user: { id: "u-approved" },
+    guild,
+    guildId: guild.id,
+    client: guild.client,
+    customId: selectId,
+    values: ["u-target"],
+    users: { first: () => ({ id: "u-target", bot: false }) },
+    deferUpdate: async () => undefined,
+    editReply: async (payload: Record<string, unknown>) => {
+      updates.push({ payload });
+    },
+    update: async (payload: Record<string, unknown>) => {
+      updates.push({ payload });
+    },
+    reply: async () => undefined,
+    followUp: async () => undefined,
+  };
+  const select = findSelectMenu(selectId!)!;
+  await select.handler(selectInteraction as never, select.args);
+  const confirmId = JSON.stringify(updates[0]?.payload).match(/people:invite-confirm:[0-9a-z]+/)?.[0];
+  expect(confirmId).toBeDefined();
+
+  const confirmInteraction = {
+    user: { id: "u-approved" },
+    guild,
+    guildId: guild.id,
+    client: guild.client,
+    customId: confirmId,
+    deferUpdate: async () => undefined,
+    editReply: async (payload: Record<string, unknown>) => {
+      updates.push({ payload });
+    },
+    update: async (payload: Record<string, unknown>) => {
+      updates.push({ payload });
+    },
+    reply: async () => undefined,
+    followUp: async () => undefined,
+  };
+  const confirm = findButton(confirmId!)!;
+  await confirm.handler(confirmInteraction as never, confirm.args);
+
+  expect(hasPendingInviteRequest(meetup.id, "u-target")).toBe(true);
+  expect(JSON.stringify(channelMessages)).toContain("招待申請が届きました");
+  const rows = listParticipationMessages(meetup.id);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    kind: "invite_request",
+    channelId: "chan-request",
+    messageId: "msg-request",
+  });
+});
+
+test("closeParticipationMessages removes the invite buttons from a stored DM", async () => {
+  const meetup = createMeetup({
+    guildId: "g-close",
+    hostId: "host",
+    name: "招待パネル終了",
+    description: "",
+    capacity: 5,
+    startAt: Date.now() + 24 * 60 * 60 * 1000,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PRIVATE",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  recordParticipationMessage(meetup.id, "invite", "dm-chan-close", "dm-msg-close");
+
+  const edits: Record<string, unknown>[] = [];
+  const dmMessage = {
+    id: "dm-msg-close",
+    channelId: "dm-chan-close",
+    content: "",
+    embeds: [inviteEmbed(meetup, "host")],
+    components: [],
+    edit: async (payload: Record<string, unknown>) => {
+      edits.push(payload);
+    },
+  };
+  const channel = {
+    id: "dm-chan-close",
+    isTextBased: () => true,
+    messages: { fetch: async () => dmMessage },
+  };
+  const client = {
+    channels: {
+      fetch: async (id: string) => (id === "dm-chan-close" ? channel : null),
+    },
+  };
+
+  await closeParticipationMessages(client as never, meetup.id, "募集は終了しました");
+
+  expect(edits).toHaveLength(1);
+  expect(edits[0]?.components).toEqual([]);
+  expect(JSON.stringify(edits[0]?.embeds)).toContain("募集は終了しました");
+  expect(listParticipationMessages(meetup.id)).toHaveLength(0);
 });
 
 test("invite embed hides the meeting place and shows the inviter", () => {
@@ -270,6 +439,7 @@ test("accepting an invite announces the new member in the meetup channel", async
     type: ChannelType.GuildText,
     send: async (payload: unknown) => {
       sent.push(payload);
+      return { id: "msg-join", channelId: "chan-join" };
     },
     permissionOverwrites: {
       cache: new Map(),

@@ -21,10 +21,13 @@ import {
   messageEmbed,
   replyEphemeral,
   replyError,
+  sendDM,
   sendToMeetupChannel,
+  sendToMeetupChannelMessage,
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
+import { recordParticipationMessage } from "../core/participation.ts";
 import {
   approveParticipant,
   canManage,
@@ -121,12 +124,21 @@ async function deliverInvite(
   const embeds = [inviteEmbed(meetup, inviterId)];
   const components = inviteComponents(meetup);
 
-  if (await tryDM(guild.client, targetId, { embeds, components })) return "DM";
+  const message = await sendDM(guild.client, targetId, { embeds, components });
+  if (message) {
+    recordParticipationMessage(meetup.id, "invite", message.channelId, message.id);
+    return "DM";
+  }
 
   const thread = await createInviteThread(guild, targetId, `招待-${meetup.id}-${targetId.slice(-4)}`);
   if (thread) {
     try {
-      await thread.send({ content: `<@${targetId}> さん、招待が届いています。`, embeds, components });
+      const sent = await thread.send({
+        content: `<@${targetId}> さん、招待が届いています。`,
+        embeds,
+        components,
+      });
+      recordParticipationMessage(meetup.id, "invite", thread.id, sent.id);
       return "THREAD";
     } catch {
       await deleteThread(thread);
@@ -281,7 +293,7 @@ async function submitInviteRequest(
 ): Promise<boolean> {
   if (hasPendingInviteRequest(meetup.id, targetId)) return false;
   const request = createInviteRequest(meetup.id, requesterId, targetId);
-  const sent = await sendToMeetupChannel(guild, meetup, {
+  const message = await sendToMeetupChannelMessage(guild, meetup, {
     content: `${adminMentions(meetup)}\n<@${requesterId}> さんから招待申請が届きました。`,
     embeds: [
       new EmbedBuilder()
@@ -295,8 +307,12 @@ async function submitInviteRequest(
     ],
     components: requestComponents(request.id),
   });
-  if (!sent) decideInviteRequest(request.id, "REJECTED", requesterId);
-  return sent;
+  if (!message) {
+    decideInviteRequest(request.id, "REJECTED", requesterId);
+    return false;
+  }
+  recordParticipationMessage(meetup.id, "invite_request", message.channelId, message.id);
+  return true;
 }
 
 function meetupForSession(
