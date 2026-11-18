@@ -195,7 +195,7 @@ test("init renames the old-name forum instead of creating a duplicate", async ()
   expect(renamed).toEqual([{ id: "forum", name: "meetup募集" }]);
 });
 
-test("channels moved out of the layout category stay tracked by id", async () => {
+test("channels moved and renamed outside the layout category stay tracked by id", async () => {
   const { guild, cache, created, edits, renamed } = makeGuild();
   await ensureLayout(guild);
   const values = [...cache.values()];
@@ -206,6 +206,8 @@ test("channels moved out of the layout category stay tracked by id", async () =>
 
   forum.parentId = "other-category";
   invite.parentId = "other-category";
+  forum.name = "renamed-recruitment";
+  invite.name = "renamed-invites";
   edits.length = 0;
 
   const layout = await ensureLayout(guild);
@@ -219,4 +221,26 @@ test("channels moved out of the layout category stay tracked by id", async () =>
   expect(edits.some((edit) => edit.channelId === forum.id)).toBe(true);
   expect(edits.some((edit) => edit.channelId === invite.id)).toBe(true);
   expect(await isLayoutInitialized(guild)).toBe(true);
+});
+
+test("a deleted tracked channel is recreated instead of adopting a same-named decoy", async () => {
+  const { guild, cache, created, makeChannel: channel } = makeGuild();
+  await ensureLayout(guild);
+  const forum = [...cache.values()][1]!;
+  cache.delete(forum.id);
+  cache.set(
+    "decoy",
+    channel({ id: "decoy", name: "meetup募集", type: ChannelType.GuildForum, parentId: "elsewhere" }, true),
+  );
+
+  const layout = await ensureLayout(guild);
+
+  expect(layout.forum.id).not.toBe("decoy");
+  expect(created.filter((entry) => entry.type === ChannelType.GuildForum)).toHaveLength(2);
+});
+
+test("concurrent ensureLayout calls do not duplicate the layout", async () => {
+  const { guild, created } = makeGuild();
+  await Promise.all([ensureLayout(guild), ensureLayout(guild)]);
+  expect(created).toHaveLength(3);
 });
