@@ -97,9 +97,8 @@ test("dashboard filters split recruiting, joined and managed meetups", () => {
 
   expect(ids("managing")).toEqual([managed.id]);
   expect(ids("joined")).toEqual([joined.id]);
-  expect(ids("recruiting")).toEqual(
-    [managed.id, joined.id, applied.id, other.id].sort((a, b) => a - b),
-  );
+  // 募集中 = まだ参加申請できるMeetUp（管理中・参加中・申請中は別タブ）
+  expect(ids("recruiting")).toEqual([other.id]);
 });
 
 test("detail buttons follow the actor's permissions and state", () => {

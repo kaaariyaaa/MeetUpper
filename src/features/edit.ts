@@ -20,10 +20,10 @@ import {
 import { db } from "../db.ts";
 import {
   deferEphemeral,
+  ensureLayout,
   messageEmbed,
   replyEphemeral,
   replyError,
-  resolveTargetMeetup,
   sendToMeetupChannel,
 } from "../core/discord.ts";
 import { cancelEvent, syncEventCreation, updateEvent } from "../core/events.ts";
@@ -33,6 +33,7 @@ import {
   getMeetup,
   isHost,
   listCohosts,
+  listMeetups,
   updateMeetup,
 } from "../core/meetup.ts";
 import {
@@ -42,7 +43,14 @@ import {
   recalculateSchedules,
   reminderBaseAt,
 } from "../core/reminders.ts";
-import { createUiSession, dropUiSession, getUiSession } from "../core/ui.ts";
+import {
+  createUiSession,
+  dropUiSession,
+  getUiSession,
+  meetupNavRow,
+  meetupSelectRow,
+  selectedNumber,
+} from "../core/ui.ts";
 import { button, modal, selectMenu, subcommand } from "../core/registry.ts";
 import { discordTimestamp, formatInZone, parseDateTime } from "../core/time.ts";
 import type { ApprovalMode, Meetup } from "../core/types.ts";
@@ -100,7 +108,7 @@ export function validateDraft(
   draft: EditDraft,
   mode: Meetup["mode"],
   now = Date.now(),
-  options: { originalMeetingAt?: number | null } = {},
+  options: { originalMeetingAt?: number | null; originalStartAt?: number } = {},
 ): void {
   if (!draft.name.trim()) throw new Error("MeetUp名を入力してください。");
   if (draft.name.trim().length > 100) throw new Error("MeetUp名は100文字以内で入力してください。");
@@ -118,6 +126,10 @@ export function validateDraft(
   }
   if (mode !== "PUBLIC" && draft.eventEnabled) {
     throw new Error("イベント連携はPublicのMeetUpのみ設定できます。");
+  }
+  const startChanged = options.originalStartAt === undefined || options.originalStartAt !== draft.startAt;
+  if (startChanged && draft.startAt <= now) {
+    throw new Error("開催日時は未来の日時を指定してください。");
   }
   if (draft.meetingAt !== null) {
     if (draft.meetingAt > draft.startAt) {
@@ -192,14 +204,13 @@ function hubComponents(
       .setLabel("中止")
       .setStyle(ButtonStyle.Danger),
   );
-  const people = [
-    new ButtonBuilder()
-      .setCustomId(`people:cohost-open:${meetup.id}`)
-      .setLabel("共同主催者")
-      .setStyle(ButtonStyle.Secondary),
-  ];
+  const people: ButtonBuilder[] = [];
   if (isHost(meetup, userId)) {
     people.push(
+      new ButtonBuilder()
+        .setCustomId(`people:cohost-open:${meetup.id}`)
+        .setLabel("共同主催者")
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId(`people:host-open:${meetup.id}`)
         .setLabel("主催者変更")
@@ -445,7 +456,11 @@ function errorMessage(error: unknown): string {
 }
 
 async function openHub(
-  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  interaction:
+    | ChatInputCommandInteraction
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction,
   meetup: Meetup,
 ): Promise<void> {
   if (!canManage(meetup, interaction.user.id)) {
@@ -476,7 +491,10 @@ export async function commitDraft(
   draft: EditDraft,
   now = Date.now(),
 ): Promise<{ updated: Meetup; warnings: string[]; changed: boolean }> {
-  validateDraft(draft, meetup.mode, now, { originalMeetingAt: meetup.meetingAt });
+  validateDraft(draft, meetup.mode, now, {
+    originalMeetingAt: meetup.meetingAt,
+    originalStartAt: meetup.startAt,
+  });
   const changed = !sameDraft(meetup, draft);
   if (!changed) return { updated: meetup, warnings: [], changed: false };
 
@@ -521,6 +539,21 @@ export async function commitDraft(
     updated = getMeetup(updated.id)!;
   }
 
+  if (updated.mode === "PUBLIC" && !updated.forumThreadId) {
+    try {
+      const layout = await ensureLayout(guild);
+      const thread = await layout.forum.threads.create({
+        name: updated.name.slice(0, 100),
+        message: { embeds: [publicEmbed(updated)], components: [applyButtonRow(updated)] },
+      });
+      updateMeetup(updated.id, { forumThreadId: thread.id });
+      updated = getMeetup(updated.id)!;
+    } catch (error) {
+      console.error("募集投稿の作成に失敗しました", error);
+      warnings.push("募集フォーラムへの投稿に失敗しました。");
+    }
+  }
+
   if (updated.mode === "PUBLIC" && updated.forumThreadId) {
     try {
       const thread = await guild.channels.fetch(updated.forumThreadId);
@@ -537,7 +570,11 @@ export async function commitDraft(
     }
   }
 
-  if (updated.capacity > 0 && countApproved(updated.id) > updated.capacity) {
+  if (
+    draft.capacity !== meetup.capacity &&
+    updated.capacity > 0 &&
+    countApproved(updated.id) > updated.capacity
+  ) {
     warnings.push("確定済みの参加者数が新しい定員を超えています。");
   }
 
@@ -567,13 +604,59 @@ subcommand(
     }
     await deferEphemeral(interaction);
     try {
-      const meetup = resolveTargetMeetup(guild, interaction);
-      await openHub(interaction, meetup);
+      const id = interaction.options.getInteger("meetup");
+      const meetup = id !== null ? getMeetup(id) : null;
+      if (id !== null && (!meetup || meetup.guildId !== guild.id)) {
+        await replyEphemeral(interaction, "MeetUpが見つかりません。");
+        return;
+      }
+      if (meetup) {
+        await openHub(interaction, meetup);
+        return;
+      }
+      const choices = listMeetups(guild.id, ["ACTIVE"]).filter((item) =>
+        canManage(item, interaction.user.id),
+      );
+      if (choices.length === 0) {
+        await replyEphemeral(interaction, "編集できるMeetUpがありません。");
+        return;
+      }
+      const session = createUiSession<null>({
+        ownerId: interaction.user.id,
+        guildId: guild.id,
+        data: null,
+      });
+      await replyEphemeral(interaction, {
+        embeds: [new EmbedBuilder().setColor(0x5865f2).setDescription("編集するMeetUpを選択してください。")],
+        components: [meetupSelectRow(`edit:pick:${session.id}`, choices.map((item) => ({ meetup: item })))],
+      });
     } catch (error) {
       await replyError(interaction, error);
     }
   },
 );
+
+selectMenu(/^edit:pick:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<null>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, "画面の有効期限が切れました。コマンドを開き直してください。");
+      return;
+    }
+    const meetup = getMeetup(selectedNumber(interaction) ?? 0);
+    if (!meetup || meetup.guildId !== session.guildId) {
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
+      return;
+    }
+    if (meetup.state !== "ACTIVE" || !canManage(meetup, interaction.user.id)) {
+      await replyEphemeral(interaction, "このMeetUpは編集できません。");
+      return;
+    }
+    await openHub(interaction, meetup);
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 button(/^edit:open:(\d+)$/, async (interaction, args) => {
   try {
@@ -648,7 +731,10 @@ button(/^edit:save:([A-Za-z0-9]+)$/, async (interaction, args) => {
       result.changed ? "MeetUp情報を保存しました。" : "変更はありません。",
       ...result.warnings,
     ];
-    await interaction.editReply({ embeds: [messageEmbed(lines.join("\n"))], components: [] });
+    await interaction.editReply({
+      embeds: [messageEmbed(lines.join("\n"))],
+      components: result.changed ? [meetupNavRow(result.updated.id)] : [],
+    });
   } catch (error) {
     await interaction.editReply({
       embeds: [hubEmbed(resolved.meetup, resolved.draft, errorMessage(error))],
@@ -730,7 +816,10 @@ modal(/^edit:basic:([A-Za-z0-9]+)$/, async (interaction, args) => {
       throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
     }
     const candidate: EditDraft = { ...draft, name, description, capacity, startAt };
-    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
+    validateDraft(candidate, meetup.mode, Date.now(), {
+      originalMeetingAt: meetup.meetingAt,
+      originalStartAt: meetup.startAt,
+    });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {
@@ -756,7 +845,10 @@ modal(/^edit:meeting:([A-Za-z0-9]+)$/, async (interaction, args) => {
     }
     const meetingPlace = interaction.fields.getTextInputValue("meeting-place").trim() || null;
     const candidate: EditDraft = { ...draft, meetingAt, meetingPlace };
-    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
+    validateDraft(candidate, meetup.mode, Date.now(), {
+      originalMeetingAt: meetup.meetingAt,
+      originalStartAt: meetup.startAt,
+    });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {
@@ -776,7 +868,10 @@ modal(/^edit:votes:([A-Za-z0-9]+)$/, async (interaction, args) => {
       100,
     );
     const candidate: EditDraft = { ...draft, requiredVotes };
-    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
+    validateDraft(candidate, meetup.mode, Date.now(), {
+      originalMeetingAt: meetup.meetingAt,
+      originalStartAt: meetup.startAt,
+    });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {

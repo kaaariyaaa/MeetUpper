@@ -19,11 +19,12 @@ import {
 } from "discord.js";
 import {
   deferEphemeral,
+  meetupFromInteraction,
   replyEphemeral,
   replyError,
   resolveTargetMeetup,
 } from "../core/discord.ts";
-import { canManage, getMeetup } from "../core/meetup.ts";
+import { canManage, getMeetup, listMeetups } from "../core/meetup.ts";
 import {
   MAX_REMINDER_OFFSETS,
   PRESET_REMINDER_OFFSETS,
@@ -40,6 +41,12 @@ import {
   validateReminderOffsets,
 } from "../core/reminders.ts";
 import { tickReminders } from "../core/reminderEngine.ts";
+import {
+  createUiSession,
+  getUiSession,
+  meetupSelectRow,
+  selectedNumber,
+} from "../core/ui.ts";
 import { button, modal, selectMenu, setup, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
 import type { Meetup, ReminderSchedule } from "../core/types.ts";
@@ -358,7 +365,11 @@ async function updateHistory(
 }
 
 async function openReminderPanel(
-  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  interaction:
+    | ChatInputCommandInteraction
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction,
   meetup: Meetup,
 ): Promise<void> {
   if (!canManage(meetup, interaction.user.id)) {
@@ -403,13 +414,59 @@ subcommand(
     }
     await deferEphemeral(interaction);
     try {
-      const meetup = resolveTargetMeetup(interaction.guild, interaction);
-      await openReminderPanel(interaction, meetup);
+      const id = interaction.options.getInteger("meetup");
+      const meetup = id !== null ? getMeetup(id) : meetupFromInteraction(interaction);
+      if (id !== null && (!meetup || meetup.guildId !== interaction.guild.id)) {
+        await replyEphemeral(interaction, "MeetUpが見つかりません。");
+        return;
+      }
+      if (meetup && meetup.guildId === interaction.guild.id) {
+        await openReminderPanel(interaction, meetup);
+        return;
+      }
+      const choices = listMeetups(interaction.guild.id, ["ACTIVE"]).filter((item) =>
+        canManage(item, interaction.user.id),
+      );
+      if (choices.length === 0) {
+        await replyEphemeral(interaction, "設定できるMeetUpがありません。");
+        return;
+      }
+      const session = createUiSession<null>({
+        ownerId: interaction.user.id,
+        guildId: interaction.guild.id,
+        data: null,
+      });
+      await replyEphemeral(interaction, {
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setDescription("リマインダーを設定するMeetUpを選択してください。"),
+        ],
+        components: [meetupSelectRow(`reminder:pick:${session.id}`, choices.map((item) => ({ meetup: item })))],
+      });
     } catch (error) {
       await replyError(interaction, error);
     }
   },
 );
+
+selectMenu(/^reminder:pick:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<null>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, "画面の有効期限が切れました。コマンドを開き直してください。");
+      return;
+    }
+    const meetup = getMeetup(selectedNumber(interaction) ?? 0);
+    if (!meetup || meetup.guildId !== session.guildId) {
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
+      return;
+    }
+    await openReminderPanel(interaction, meetup);
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 button(/^reminder:open:(\d+)$/, async (interaction, args) => {
   try {

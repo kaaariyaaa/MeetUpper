@@ -47,6 +47,7 @@ import {
   createUiSession,
   dropUiSession,
   getUiSession,
+  meetupNavRow,
   meetupSelectRow,
   selectedNumber,
   userSelectRow,
@@ -503,7 +504,7 @@ button(/^people:invite-confirm:([0-9a-z]+)$/, async (interaction, args) => {
             : "DMもスレッドも送信できませんでした";
       await interaction.editReply({
         embeds: [messageEmbed(`<@${targetId}> への${detail}`)],
-        components: [],
+        components: [meetupNavRow(meetup.id)],
       });
       return;
     }
@@ -531,7 +532,7 @@ button(/^people:invite-confirm:([0-9a-z]+)$/, async (interaction, args) => {
             : "招待申請を専用チャンネルへ投稿できませんでした。主催者へ直接確認してください。",
         ),
       ],
-      components: [],
+      components: [meetupNavRow(meetup.id)],
     });
   } catch (error) {
     await replyError(interaction, error);

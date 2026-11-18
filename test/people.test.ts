@@ -160,7 +160,7 @@ test("kick UI confirms, marks KICKED, revokes access and notifies", async () => 
     guildId: guild.id,
     client: guild.client,
     customId: selectId,
-    users: { first: () => ({ id: "u-kicked", bot: false }) },
+    values: ["u-kicked"],
     deferUpdate: async () => undefined,
     editReply: async (payload: Record<string, unknown>) => {
       updates.push({ payload });

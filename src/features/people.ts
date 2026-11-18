@@ -30,6 +30,7 @@ import {
   isHost,
   listCohosts,
   listMeetups,
+  listParticipants,
   removeCohost,
   setParticipantState,
   updateMeetup,
@@ -41,6 +42,7 @@ import {
   createUiSession,
   dropUiSession,
   getUiSession,
+  meetupNavRow,
   meetupSelectRow,
   selectedNumber,
   userSelectRow,
@@ -106,6 +108,32 @@ export function hostTargetDenial(
   return null;
 }
 
+function kickTargetRow(
+  guild: Guild,
+  meetup: Meetup,
+  sessionId: string,
+): ActionRowBuilder<StringSelectMenuBuilder> | null {
+  const candidates = listParticipants(meetup.id, ["APPROVED"]).filter(
+    (participant) => kickDenial(meetup, participant.userId) === null,
+  );
+  if (candidates.length === 0) return null;
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`people:kick-target:${sessionId}`)
+    .setPlaceholder("退出させる参加者を選択")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      candidates.slice(0, 25).map((participant) => {
+        const member = guild.members.cache?.get(participant.userId);
+        return new StringSelectMenuOptionBuilder()
+          .setLabel((member?.displayName ?? `ユーザー ${participant.userId.slice(-4)}`).slice(0, 100))
+          .setValue(participant.userId)
+          .setDescription(participant.userId.slice(0, 100));
+      }),
+    );
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+}
+
 function cohostRemoveRow(
   guild: Guild,
   meetup: Meetup,
@@ -120,7 +148,7 @@ function cohostRemoveRow(
     .setMaxValues(1)
     .addOptions(
       cohosts.map((id) => {
-        const member = guild.members.cache.get(id);
+        const member = guild.members.cache?.get(id);
         return new StringSelectMenuOptionBuilder()
           .setLabel((member?.displayName ?? `ユーザー ${id.slice(-4)}`).slice(0, 100))
           .setValue(id)
@@ -139,14 +167,19 @@ function panelPayload(
 ) {
   const prefix = notice ? `${notice}\n\n` : "";
   if (kind === "kick") {
+    const row = kickTargetRow(guild, meetup, sessionId);
     return {
       embeds: [
         new EmbedBuilder()
           .setTitle("退出させる参加者を選択")
           .setColor(0x5865f2)
-          .setDescription(`${prefix}「${meetup.name}」から退出させる参加者を選択してください。`),
+          .setDescription(
+            row
+              ? `${prefix}「${meetup.name}」から退出させる参加者を選択してください。`
+              : `${prefix}「${meetup.name}」に退出させられる参加確定者はいません。`,
+          ),
       ],
-      components: [userSelectRow(`people:kick-target:${sessionId}`)],
+      components: row ? [row] : [],
     };
   }
   if (kind === "host") {
@@ -461,21 +494,18 @@ selectMenu(/^people:kick-target:([0-9a-z]+)$/, async (interaction, args) => {
       await replyEphemeral(interaction, "このMeetUpは操作できません");
       return;
     }
-    const target = (interaction as unknown as UserSelectMenuInteraction).users.first();
-    if (!target) {
+    const targetId = interaction.values[0];
+    if (!targetId) {
       await replyEphemeral(interaction, "対象のメンバーを選択してください");
       return;
     }
-    const denial = kickDenial(context.meetup, target.id);
+    const denial = kickDenial(context.meetup, targetId);
     if (denial) {
-      await interaction.update({
-        embeds: [messageEmbed(denial)],
-        components: [userSelectRow(`people:kick-target:${session.id}`)],
-      });
+      await replyEphemeral(interaction, denial);
       return;
     }
-    session.data = { meetupId: context.meetup.id, targetId: target.id };
-    await interaction.update(kickConfirmPayload(context.meetup, target.id, session.id));
+    session.data = { meetupId: context.meetup.id, targetId };
+    await interaction.update(kickConfirmPayload(context.meetup, targetId, session.id));
   } catch (error) {
     await replyError(interaction, error);
   }
@@ -523,7 +553,7 @@ button(/^people:kick-confirm:([0-9a-z]+)$/, async (interaction, args) => {
     );
     await interaction.editReply({
       embeds: [messageEmbed(`<@${targetId}> を退出させました。`)],
-      components: [],
+      components: [meetupNavRow(context.meetup.id)],
     });
   } catch (error) {
     await replyError(interaction, error);
@@ -610,7 +640,7 @@ button(/^people:cohost-confirm:([0-9a-z]+)$/, async (interaction, args) => {
     );
     await interaction.editReply({
       embeds: [messageEmbed(`共同主催者に <@${targetId}> を追加しました。`)],
-      components: [],
+      components: [meetupNavRow(context.meetup.id)],
     });
   } catch (error) {
     await replyError(interaction, error);
@@ -742,7 +772,7 @@ button(/^people:host-confirm:([0-9a-z]+)$/, async (interaction, args) => {
     await tryDM(interaction.client, targetId, `MeetUp「${updated.name}」の主催者になりました。`);
     await interaction.editReply({
       embeds: [messageEmbed(`主催者を <@${targetId}> に変更しました`)],
-      components: [],
+      components: [meetupNavRow(context.meetup.id)],
     });
   } catch (error) {
     await replyError(interaction, error);

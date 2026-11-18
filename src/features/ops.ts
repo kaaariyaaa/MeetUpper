@@ -2,7 +2,6 @@ import {
   ActionRowBuilder,
   EmbedBuilder,
   ModalBuilder,
-  PermissionFlagsBits,
   SlashCommandSubcommandBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -17,8 +16,6 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import {
   archiveChannel,
-  ensureLayout,
-  isLayoutInitialized,
   meetupFromInteraction,
   messageEmbed,
   replyEphemeral,
@@ -51,6 +48,7 @@ import {
   createUiSession,
   dropUiSession,
   getUiSession,
+  meetupNavRow,
   meetupSelectRow,
   selectedNumber,
   type UiSession,
@@ -58,7 +56,7 @@ import {
 import type { Meetup } from "../core/types.ts";
 import { dateTimeHint, meetupEmbed } from "../core/views.ts";
 
-type OpsAction = "info" | "leave" | "archive" | "cancel" | "init";
+type OpsAction = "info" | "leave" | "archive" | "cancel";
 type ModalOpener =
   | ChatInputCommandInteraction
   | ButtonInteraction
@@ -77,11 +75,7 @@ const COLOR_WARNING = 0xe67e22;
 const COLOR_DANGER = 0xe74c3c;
 
 function actionFromArgs(value: string | undefined): OpsAction | null {
-  return value === "info" ||
-    value === "leave" ||
-    value === "archive" ||
-    value === "cancel" ||
-    value === "init"
+  return value === "info" || value === "leave" || value === "archive" || value === "cancel"
     ? value
     : null;
 }
@@ -92,10 +86,6 @@ async function requireGuild(interaction: RepliableInteraction): Promise<Guild | 
     return null;
   }
   return interaction.guild;
-}
-
-function isAdministrator(interaction: RepliableInteraction): boolean {
-  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
 }
 
 function startSession(interaction: RepliableInteraction, action: OpsAction, meetupId: number | null): string {
@@ -217,29 +207,29 @@ async function meetupForButton(
 /* --- info --- */
 
 function infoModal(meetup: Meetup): ModalBuilder {
+  const timeInput = new TextInputBuilder()
+    .setCustomId(INFO_TIME_INPUT)
+    .setLabel("集合時間 (YYYY-MM-DD HH:mm)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(32)
+    .setPlaceholder("空欄で保存すると現在の集合時間を維持します");
+  if (meetup.meetingAt !== null) timeInput.setValue(formatInZone(meetup.meetingAt));
+
+  const placeInput = new TextInputBuilder()
+    .setCustomId(INFO_PLACE_INPUT)
+    .setLabel("集合場所（空欄で削除）")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(200);
+  if (meetup.meetingPlace) placeInput.setValue(meetup.meetingPlace.slice(0, 200));
+
   return new ModalBuilder()
     .setCustomId(`ops:info-modal:${meetup.id}`)
     .setTitle("集合情報の変更")
     .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId(INFO_TIME_INPUT)
-          .setLabel("集合時間 (YYYY-MM-DD HH:mm)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(32)
-          .setValue(meetup.meetingAt !== null ? formatInZone(meetup.meetingAt) : "")
-          .setPlaceholder("空欄で保存すると現在の集合時間を維持します"),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId(INFO_PLACE_INPUT)
-          .setLabel("集合場所（空欄で削除）")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(200)
-          .setValue(meetup.meetingPlace ?? ""),
-      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(timeInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(placeInput),
     );
 }
 
@@ -583,7 +573,7 @@ button(/^ops:cancel-open:(\d+)$/, async (interaction, args) => {
 selectMenu(/^ops:pick:(info|leave|archive|cancel)$/, async (interaction, args) => {
   try {
     const action = actionFromArgs(args[0]);
-    if (!action || action === "init") {
+    if (!action) {
       await replyEphemeral(interaction, "無効な操作です。");
       return;
     }
@@ -605,7 +595,7 @@ selectMenu(/^ops:pick:(info|leave|archive|cancel)$/, async (interaction, args) =
 
 /* --- confirmations --- */
 
-button(/^ops:confirm:(leave|archive|cancel|init):([A-Za-z0-9]+)$/, async (interaction, args) => {
+button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction, args) => {
   try {
     const action = actionFromArgs(args[0]);
     if (!action) {
@@ -616,35 +606,6 @@ button(/^ops:confirm:(leave|archive|cancel|init):([A-Za-z0-9]+)$/, async (intera
     if (!session) return;
     const guild = await requireGuild(interaction);
     if (!guild) return;
-
-    if (action === "init") {
-      if (!isAdministrator(interaction)) {
-        await replyEphemeral(interaction, "このコマンドはサーバー管理者のみ実行できます。");
-        return;
-      }
-      const reused = await isLayoutInitialized(guild);
-      const layout = await ensureLayout(guild);
-      dropUiSession(session.id);
-      await interaction.update({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle(reused ? "セットアップ済みのレイアウト" : "セットアップ完了")
-            .setColor(0x2ecc71)
-            .setDescription(
-              [
-                reused
-                  ? "既存のMeetUpレイアウトを再利用し、権限と並び順を整えました。"
-                  : "MeetUpレイアウトを作成しました。",
-                `カテゴリ: ${layout.category.name}`,
-                `募集フォーラム: <#${layout.forum.id}>`,
-                `招待チャンネル: <#${layout.inviteChannel.id}>`,
-              ].join("\n"),
-            ),
-        ],
-        components: [],
-      });
-      return;
-    }
 
     const meetup = session.meetupId === null ? null : getMeetup(session.meetupId);
     if (!meetup || meetup.guildId !== guild.id) {
@@ -662,7 +623,7 @@ button(/^ops:confirm:(leave|archive|cancel|init):([A-Za-z0-9]+)$/, async (intera
       dropUiSession(session.id);
       await interaction.update({
         embeds: [messageEmbed("参加をキャンセルしました。")],
-        components: [],
+        components: [meetupNavRow(meetup.id)],
       });
       await revokeChannelAccess(guild, meetup, interaction.user.id);
       await notifyChannel(guild, meetup, `<@${interaction.user.id}> が参加をキャンセルしました。`);
@@ -678,7 +639,10 @@ button(/^ops:confirm:(leave|archive|cancel|init):([A-Za-z0-9]+)$/, async (intera
       archiveMeetup(meetup);
       const updated = getMeetup(meetup.id)!;
       dropUiSession(session.id);
-      await interaction.update({ embeds: [messageEmbed("アーカイブしました。")], components: [] });
+      await interaction.update({
+        embeds: [messageEmbed("アーカイブしました。")],
+        components: [meetupNavRow(updated.id)],
+      });
       await archiveChannel(guild, updated);
       await syncMeetupAccess(guild, updated).catch((error) =>
         console.error("アーカイブ後の権限同期に失敗しました", error),
@@ -695,7 +659,10 @@ button(/^ops:confirm:(leave|archive|cancel|init):([A-Za-z0-9]+)$/, async (intera
     cancelMeetup(meetup);
     const updated = getMeetup(meetup.id)!;
     dropUiSession(session.id);
-    await interaction.update({ embeds: [messageEmbed("MeetUpを中止しました。")], components: [] });
+    await interaction.update({
+      embeds: [messageEmbed("MeetUpを中止しました。")],
+      components: [meetupNavRow(updated.id)],
+    });
     await cancelEvent(guild, updated);
     const message = `MeetUpが中止されました: ${updated.name}`;
     await notifyChannel(guild, updated, message);

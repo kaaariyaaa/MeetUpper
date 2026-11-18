@@ -292,9 +292,9 @@ Discordのボタン、セレクトメニュー、モーダルを適切に組み�
 
 ### 9.5 MeetUp作成時
 
-`/meetupper create` には自動通知のON/OFFのみ追加する。初期値はON。
+`/meetupper create` は公開モード・参加方法・名前・開催日時の4項目だけをモーダルで入力し、自動通知はONで作成する（UI改修時の決定）。
 
-通知時刻の詳細設定は作成後の `/meetupper reminder` で行う。
+通知時刻の詳細設定とON/OFFは作成後の `/meetupper reminder` で行う。
 
 ## 10. 送信履歴
 

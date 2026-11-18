@@ -72,12 +72,9 @@ test("parseCreateForm accepts public joins and enforces private host approval", 
   expect(direct.startAt).toBeGreaterThan(Date.now());
 
   expect(parseCreateForm({ ...base, mode: "PRIVATE", approval: "HOST" }).approvalMode).toBe("HOST");
-  expect(() => parseCreateForm({ ...base, mode: "PRIVATE", approval: "DIRECT" })).toThrow(
-    /主催者承認/,
-  );
-  expect(() => parseCreateForm({ ...base, mode: "PRIVATE", approval: "VOTE" })).toThrow(
-    /主催者承認/,
-  );
+  // Private is fixed to HOST; other modal choices are ignored rather than rejected.
+  expect(parseCreateForm({ ...base, mode: "PRIVATE", approval: "DIRECT" }).approvalMode).toBe("HOST");
+  expect(parseCreateForm({ ...base, mode: "PRIVATE", approval: "VOTE" }).approvalMode).toBe("HOST");
 });
 
 test("parseCreateForm rejects missing selections, names and dates", () => {

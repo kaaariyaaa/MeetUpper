@@ -9,6 +9,7 @@ import {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Guild,
   type ModalSubmitInteraction,
@@ -32,7 +33,7 @@ import {
   updateMeetup,
   type CreateMeetupInput,
 } from "../core/meetup.ts";
-import { modal, subcommand } from "../core/registry.ts";
+import { button, modal, subcommand } from "../core/registry.ts";
 import { parseDateTime } from "../core/time.ts";
 import type { ApprovalMode, MeetupMode } from "../core/types.ts";
 import { createUiSession, dropUiSession, getUiSession } from "../core/ui.ts";
@@ -150,10 +151,8 @@ function selectedApproval(value: string | null): ApprovalMode {
 /** Validates the modal values: Private stays on host approval and the date must be in the future. */
 export function parseCreateForm(values: CreateFormValues, now = Date.now()): CreateDraft {
   const mode = selectedMode(values.mode);
-  const approvalMode = selectedApproval(values.approval);
-  if (mode === "PRIVATE" && approvalMode !== "HOST") {
-    throw new Error("PrivateのMeetUpは主催者承認に固定です。");
-  }
+  // Private is fixed to host approval; ignore a non-HOST modal choice instead of failing the flow.
+  const approvalMode = mode === "PRIVATE" ? "HOST" : selectedApproval(values.approval);
 
   const name = values.name.trim();
   if (!name) throw new Error("MeetUp名を入力してください。");
@@ -227,27 +226,44 @@ async function requireGuild(interaction: ChatInputCommandInteraction): Promise<G
   return interaction.guild;
 }
 
+async function openCreateModal(
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
+): Promise<void> {
+  const guild = interaction.guild;
+  if (!guild) {
+    await replyEphemeral(interaction, "この操作はサーバー内でのみ使用できます。");
+    return;
+  }
+  if (!(await isLayoutInitialized(guild))) {
+    await replyEphemeral(interaction, setupRequiredMessage(guild));
+    return;
+  }
+  const session = createUiSession<null>({
+    ownerId: interaction.user.id,
+    guildId: guild.id,
+    data: null,
+  });
+  await interaction.showModal(createModal(session.id));
+}
+
 subcommand(
   new SlashCommandSubcommandBuilder().setName("create").setDescription("MeetUpを作成します"),
   async (interaction) => {
     try {
-      const guild = await requireGuild(interaction);
-      if (!guild) return;
-      if (!(await isLayoutInitialized(guild))) {
-        await replyEphemeral(interaction, setupRequiredMessage(guild));
-        return;
-      }
-      const session = createUiSession<null>({
-        ownerId: interaction.user.id,
-        guildId: guild.id,
-        data: null,
-      });
-      await interaction.showModal(createModal(session.id));
+      await openCreateModal(interaction);
     } catch (error) {
       await replyError(interaction, error);
     }
   },
 );
+
+button(/^create:open$/, async (interaction) => {
+  try {
+    await openCreateModal(interaction);
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 modal(/^create:submit:([a-z0-9]+)$/, async (interaction, args) => {
   const sessionId = args[0];

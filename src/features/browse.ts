@@ -9,7 +9,7 @@ import {
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import { deferEphemeral, meetupFromInteraction, replyEphemeral, replyError } from "../core/discord.ts";
-import { canManage, getMeetup, getParticipant, listMeetups, listParticipants } from "../core/meetup.ts";
+import { canManage, getMeetup, getParticipant, isHost, listMeetups, listParticipants } from "../core/meetup.ts";
 import { button, selectMenu, subcommand } from "../core/registry.ts";
 import type { Meetup, ParticipantState } from "../core/types.ts";
 import {
@@ -61,7 +61,7 @@ export function meetupsForFilter(guildId: string, userId: string, filter: Browse
     if (!canViewMeetup(meetup, userId)) return false;
     if (filter === "managing") return canManage(meetup, userId);
     if (filter === "joined") return getParticipant(meetup.id, userId)?.state === "APPROVED";
-    return true;
+    return applicationDenial(meetup, userId) === null;
   });
 }
 
@@ -133,6 +133,12 @@ function dashboardPayload(session: BrowseSession, userId: string): BrowsePanel {
         items.map((meetup) => ({ meetup })),
       ),
     );
+  } else {
+    components.push(
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        linkButton("create:open", "MeetUpを作成"),
+      ),
+    );
   }
   components.push(
     pageRow(
@@ -175,6 +181,13 @@ export function meetupDetailComponents(
 
   if (manager) {
     actions.push(linkButton(`browse:members:${meetup.id}`, "参加者"));
+    if (active) actions.push(linkButton(`people:kick-open:${meetup.id}`, "キック"));
+    if (active && isHost(meetup, userId)) {
+      actions.push(
+        linkButton(`people:cohost-open:${meetup.id}`, "共同主催者"),
+        linkButton(`people:host-open:${meetup.id}`, "主催者変更"),
+      );
+    }
     if (active) {
       actions.unshift(
         linkButton(`people:invite-open:${meetup.id}`, "招待"),

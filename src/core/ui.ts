@@ -123,6 +123,16 @@ export function userSelectRow(
   return new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(select);
 }
 
+/** Completion-screen link back to the MeetUp detail panel. */
+export function meetupNavRow(meetupId: number): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`browse:show:${meetupId}`)
+      .setLabel("MeetUpを開く")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
 export function confirmButtons(
   confirmId: string,
   cancelId: string,
