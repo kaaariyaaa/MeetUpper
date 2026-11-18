@@ -339,6 +339,10 @@ export function markRecruitmentClosed(meetupId: number, now = Date.now()): void 
   ).run(meetupId, now);
 }
 
+export function clearRecruitmentClosed(meetupId: number): void {
+  db.query("DELETE FROM recruitment_closures WHERE meetup_id = ?").run(meetupId);
+}
+
 export function isRecruitmentClosed(meetupId: number): boolean {
   return Boolean(
     db.query("SELECT 1 FROM recruitment_closures WHERE meetup_id = ?").get(meetupId),

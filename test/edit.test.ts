@@ -8,7 +8,7 @@ process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 const { db } = await import("../src/db.ts");
 db.exec("DELETE FROM meetups");
 
-const { getMeetup, addCohost, cancelMeetup, createMeetup, removeCohost } = await import(
+const { getMeetup, addCohost, cancelMeetup, createMeetup, removeCohost, updateMeetup } = await import(
   "../src/core/meetup.ts"
 );
 const { listSchedules } = await import("../src/core/reminders.ts");
@@ -475,4 +475,34 @@ test("reminders are rebuilt only when the base date changes", async () => {
   const afterStart = listSchedules(meetup.id);
   expect(afterStart.length).toBe(before.length);
   expect(afterStart.every((schedule) => schedule.baseAt === newStart)).toBe(true);
+});
+
+test("editing a started PUBLIC MeetUp does not restore the apply button", async () => {
+  const meetup = makeMeetup({ startAt: Date.now() - HOUR });
+  updateMeetup(meetup.id, { forumThreadId: "thread-started" });
+
+  const edits: { content?: string; embeds?: unknown[]; components?: unknown[] }[] = [];
+  const starter = {
+    content: "",
+    embeds: [],
+    edit: async (payload: { content?: string; embeds?: unknown[]; components?: unknown[] }) => {
+      edits.push(payload);
+    },
+  };
+  const thread = {
+    isThread: () => true,
+    setName: async () => undefined,
+    fetchStarterMessage: async () => starter,
+  };
+  const guild = {
+    id: "g1",
+    channels: { fetch: async (id: string) => (id === "thread-started" ? thread : null) },
+  };
+  const { commitDraft, draftFromMeetup } = await import("../src/features/edit.ts");
+  const draft = { ...draftFromMeetup(getMeetup(meetup.id)!), name: "開始後の編集" };
+  await commitDraft(guild as never, getMeetup(meetup.id)!, draft);
+
+  expect(edits.length).toBe(1);
+  expect(edits[0]?.components).toEqual([]);
+  expect(JSON.stringify(edits[0])).toContain("募集は終了しました");
 });

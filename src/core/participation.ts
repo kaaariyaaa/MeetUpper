@@ -71,10 +71,17 @@ export async function closeParticipationMessage(
   entry: ParticipationMessage,
   notice: string,
 ): Promise<boolean> {
-  const channel = await client.channels.fetch(entry.channelId).catch((error) => {
-    if (isUnknownTarget(error)) return null;
-    throw error;
-  });
+  let channel;
+  try {
+    channel = await client.channels.fetch(entry.channelId);
+  } catch (error) {
+    if (isUnknownTarget(error)) {
+      deleteParticipationMessage(entry.id);
+      return true;
+    }
+    console.error(`参加メッセージのチャンネル取得に失敗しました: ${entry.channelId}`, error);
+    return false;
+  }
   if (!channel || !channel.isTextBased()) {
     deleteParticipationMessage(entry.id);
     return true;
@@ -117,7 +124,11 @@ export async function closeParticipationMessages(
   notice: string,
 ): Promise<void> {
   for (const entry of listParticipationMessages(meetupId)) {
-    await closeParticipationMessage(client, entry, notice);
+    try {
+      await closeParticipationMessage(client, entry, notice);
+    } catch (error) {
+      console.error(`参加メッセージの閉鎖処理に失敗しました: ${entry.id}`, error);
+    }
   }
 }
 
@@ -132,6 +143,10 @@ export async function sweepParticipationMessages(client: Client, now = Date.now(
     )
     .all(now) as ParticipationRow[];
   for (const row of rows) {
-    await closeParticipationMessage(client, toParticipationMessage(row), "募集は終了しました");
+    try {
+      await closeParticipationMessage(client, toParticipationMessage(row), "募集は終了しました");
+    } catch (error) {
+      console.error(`参加メッセージの再試行に失敗しました: ${row.id}`, error);
+    }
   }
 }

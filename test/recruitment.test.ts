@@ -162,3 +162,41 @@ test("a participation message whose edit fails keeps its row for retry", async (
   expect(listParticipationMessages(meetup.id).map((entry) => entry.messageId)).toEqual(["msg-fail"]);
 });
 
+
+test("started recruitment edit removes the apply button and adds 募集状況", async () => {
+  const meetup = makeMeetup({ startAt: Date.now() - 60_000, threadId: "thread-1" });
+  const edits: { components?: unknown[]; embeds?: unknown[]; content?: string }[] = [];
+  const starter = {
+    content: "",
+    embeds: [],
+    edit: async (payload: { components?: unknown[]; embeds?: unknown[]; content?: string }) => {
+      edits.push(payload);
+    },
+  };
+  const thread = {
+    locked: false,
+    archived: false,
+    isThread: () => true,
+    fetchStarterMessage: async () => starter,
+    setLocked: async (value: boolean) => {
+      thread.locked = value;
+    },
+    setArchived: async (value: boolean) => {
+      thread.archived = value;
+    },
+  };
+  const guild = {
+    id: "g-recruit",
+    channels: { fetch: async (id: string) => (id === "thread-1" ? thread : null) },
+  };
+  const client = {
+    isReady: () => true,
+    guilds: { cache: new Map([["g-recruit", guild]]) },
+  } as unknown as Client;
+
+  await tickReminders(client, Date.now());
+  expect(edits.length).toBe(1);
+  expect(edits[0]?.components).toEqual([]);
+  expect(edits[0]?.content).toContain("募集は終了しました");
+  expect(isRecruitmentClosed(meetup.id)).toBe(true);
+});

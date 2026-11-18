@@ -29,9 +29,12 @@ import {
 import { cancelEvent, syncEventCreation, updateEvent } from "../core/events.ts";
 import {
   canManage,
+  clearRecruitmentClosed,
   countApproved,
   getMeetup,
   isHost,
+  isParticipationOpen,
+  isRecruitmentClosed,
   listCohosts,
   listMeetups,
   updateMeetup,
@@ -539,34 +542,57 @@ export async function commitDraft(
     updated = getMeetup(updated.id)!;
   }
 
-  if (updated.mode === "PUBLIC" && !updated.forumThreadId) {
-    try {
-      const layout = await ensureLayout(guild);
-      const thread = await layout.forum.threads.create({
-        name: updated.name.slice(0, 100),
-        message: { embeds: [publicEmbed(updated)], components: [applyButtonRow(updated)] },
-      });
-      updateMeetup(updated.id, { forumThreadId: thread.id });
-      updated = getMeetup(updated.id)!;
-    } catch (error) {
-      console.error("募集投稿の作成に失敗しました", error);
-      warnings.push("募集フォーラムへの投稿に失敗しました。");
-    }
-  }
-
-  if (updated.mode === "PUBLIC" && updated.forumThreadId) {
-    try {
-      const thread = await guild.channels.fetch(updated.forumThreadId);
-      if (thread?.isThread()) {
-        await thread.setName(updated.name.slice(0, 100));
-        const starter = await thread.fetchStarterMessage().catch(() => null);
-        if (starter) {
-          await starter.edit({ embeds: [publicEmbed(updated)], components: [applyButtonRow(updated)] });
-        }
+  if (updated.mode === "PUBLIC") {
+    const open = isParticipationOpen(updated);
+    if (!updated.forumThreadId && open) {
+      try {
+        const layout = await ensureLayout(guild);
+        const thread = await layout.forum.threads.create({
+          name: updated.name.slice(0, 100),
+          message: { embeds: [publicEmbed(updated)], components: [applyButtonRow(updated)] },
+        });
+        updateMeetup(updated.id, { forumThreadId: thread.id });
+        updated = getMeetup(updated.id)!;
+      } catch (error) {
+        console.error("募集投稿の作成に失敗しました", error);
+        warnings.push("募集フォーラムへの投稿に失敗しました。");
       }
-    } catch (error) {
-      console.error("募集投稿の更新に失敗しました", error);
-      warnings.push("募集投稿の更新に失敗しました。");
+    }
+
+    if (updated.forumThreadId) {
+      try {
+        const thread = await guild.channels.fetch(updated.forumThreadId);
+        if (thread?.isThread()) {
+          if (open && isRecruitmentClosed(updated.id)) {
+            let reopened = true;
+            if (thread.archived) {
+              await thread.setArchived(false).catch(() => {
+                reopened = false;
+              });
+            }
+            if (thread.locked) {
+              await thread.setLocked(false).catch(() => {
+                reopened = false;
+              });
+            }
+            if (reopened) clearRecruitmentClosed(updated.id);
+          }
+          await thread.setName(updated.name.slice(0, 100));
+          const starter = await thread.fetchStarterMessage().catch(() => null);
+          if (starter) {
+            const embeds = open
+              ? [publicEmbed(updated)]
+              : [publicEmbed(updated).addFields({ name: "募集状況", value: "募集は終了しました" })];
+            await starter.edit({
+              embeds,
+              components: open ? [applyButtonRow(updated)] : [],
+            });
+          }
+        }
+      } catch (error) {
+        console.error("募集投稿の更新に失敗しました", error);
+        warnings.push("募集投稿の更新に失敗しました。");
+      }
     }
   }
 

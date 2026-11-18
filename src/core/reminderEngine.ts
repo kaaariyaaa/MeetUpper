@@ -262,6 +262,8 @@ async function closeStartedRecruitments(client: Client, now: number): Promise<vo
     if (!guild) continue;
     if (await closeRecruitmentThread(guild, meetup)) {
       markRecruitmentClosed(meetup.id, now);
+    } else {
+      console.error(`募集スレッドの閉鎖に失敗しました: meetup=${meetup.id}`);
     }
   }
 }
