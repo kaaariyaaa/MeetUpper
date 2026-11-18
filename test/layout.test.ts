@@ -1,13 +1,18 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { ChannelType, Collection, PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-layout-test-${process.pid}-${Date.now()}.db`);
 
+const { db } = await import("../src/db.ts");
 const { channelSlug, ensureLayout, isLayoutInitialized, setupRequiredMessage } = await import(
   "../src/core/discord.ts"
 );
+
+beforeEach(() => {
+  db.exec("DELETE FROM guild_layouts");
+});
 
 const VIEW = new PermissionsBitField([PermissionFlagsBits.ViewChannel]);
 const NONE = new PermissionsBitField([]);
@@ -188,4 +193,30 @@ test("init renames the old-name forum instead of creating a duplicate", async ()
 
   expect(created).toHaveLength(0);
   expect(renamed).toEqual([{ id: "forum", name: "meetup募集" }]);
+});
+
+test("channels moved out of the layout category stay tracked by id", async () => {
+  const { guild, cache, created, edits, renamed } = makeGuild();
+  await ensureLayout(guild);
+  const values = [...cache.values()];
+  const category = values[0]!;
+  const forum = values[1]!;
+  const invite = values[2]!;
+  expect(created).toHaveLength(3);
+
+  forum.parentId = "other-category";
+  invite.parentId = "other-category";
+  edits.length = 0;
+
+  const layout = await ensureLayout(guild);
+
+  expect(created).toHaveLength(3);
+  expect(layout.category.id).toBe(category.id);
+  expect(layout.forum.id).toBe(forum.id);
+  expect(layout.inviteChannel.id).toBe(invite.id);
+  expect(renamed).toEqual([]);
+  // The moved channels get the fixed rules directly instead of inheriting a category.
+  expect(edits.some((edit) => edit.channelId === forum.id)).toBe(true);
+  expect(edits.some((edit) => edit.channelId === invite.id)).toBe(true);
+  expect(await isLayoutInitialized(guild)).toBe(true);
 });

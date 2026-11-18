@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS meetups (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS guild_layouts (
+  guild_id TEXT PRIMARY KEY,
+  category_id TEXT NOT NULL,
+  forum_id TEXT NOT NULL,
+  invite_channel_id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS participants (
   meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,

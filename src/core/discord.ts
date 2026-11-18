@@ -9,6 +9,7 @@ import {
   type Client,
   type ForumChannel,
   type Guild,
+  type GuildBasedChannel,
   type GuildChannel,
   type GuildMember,
   type InteractionReplyOptions,
@@ -18,6 +19,7 @@ import {
   type ThreadChannel,
   type User,
 } from "discord.js";
+import { db } from "../db.ts";
 import { config } from "../config.ts";
 import type { Meetup } from "./types.ts";
 import {
@@ -70,27 +72,93 @@ function isForumName(name: string): boolean {
   return name === config.forumName || name === config.legacyForumName;
 }
 
-/** True when the MeetUp category, MeetUp募集 forum and 招待 channel all exist. */
-export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
-  const find = () => {
-    const category = guild.channels.cache.find(
+interface StoredLayout {
+  category_id: string;
+  forum_id: string;
+  invite_channel_id: string;
+}
+
+function readStoredLayout(guildId: string): StoredLayout | null {
+  const row = db
+    .query("SELECT category_id, forum_id, invite_channel_id FROM guild_layouts WHERE guild_id = ?")
+    .get(guildId) as StoredLayout | null;
+  return row ?? null;
+}
+
+function saveStoredLayout(
+  guildId: string,
+  categoryId: string,
+  forumId: string,
+  inviteChannelId: string,
+): void {
+  db.query(
+    `INSERT INTO guild_layouts (guild_id, category_id, forum_id, invite_channel_id, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(guild_id) DO UPDATE SET
+       category_id = excluded.category_id,
+       forum_id = excluded.forum_id,
+       invite_channel_id = excluded.invite_channel_id,
+       updated_at = excluded.updated_at`,
+  ).run(guildId, categoryId, forumId, inviteChannelId, Date.now());
+}
+
+async function resolveChannelById(guild: Guild, id: string): Promise<GuildBasedChannel | null> {
+  const cached = guild.channels.cache.get(id);
+  if (cached) return cached;
+  return guild.channels.fetch(id).catch(() => null);
+}
+
+function findCategoryByName(guild: Guild): CategoryChannel | null {
+  return (
+    guild.channels.cache.find(
       (channel): channel is CategoryChannel =>
         channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
-    );
-    if (!category) return false;
-    const hasForum = guild.channels.cache.some(
-      (channel) =>
-        channel.parentId === category.id &&
+    ) ?? null
+  );
+}
+
+function findForumChannel(guild: Guild, categoryId?: string): ForumChannel | null {
+  const matches = (parentId?: string) =>
+    guild.channels.cache.find(
+      (channel): channel is ForumChannel =>
         channel.type === ChannelType.GuildForum &&
-        isForumName(channel.name),
-    );
-    const hasInvite = guild.channels.cache.some(
-      (channel) =>
-        channel.parentId === category.id &&
+        isForumName(channel.name) &&
+        (parentId === undefined || channel.parentId === parentId),
+    ) ?? null;
+  return (categoryId ? matches(categoryId) : null) ?? matches();
+}
+
+function findInviteChannel(guild: Guild, categoryId?: string): TextChannel | null {
+  const matches = (parentId?: string) =>
+    guild.channels.cache.find(
+      (channel): channel is TextChannel =>
         channel.type === ChannelType.GuildText &&
-        channel.name === config.inviteName,
-    );
-    return hasForum && hasInvite;
+        channel.name === config.inviteName &&
+        (parentId === undefined || channel.parentId === parentId),
+    ) ?? null;
+  return (categoryId ? matches(categoryId) : null) ?? matches();
+}
+
+/** True when the MeetUp category, MeetUp募集 forum and 招待 channel all exist. */
+export async function isLayoutInitialized(guild: Guild): Promise<boolean> {
+  const stored = readStoredLayout(guild.id);
+  if (stored) {
+    const [category, forum, invite] = await Promise.all([
+      resolveChannelById(guild, stored.category_id),
+      resolveChannelById(guild, stored.forum_id),
+      resolveChannelById(guild, stored.invite_channel_id),
+    ]);
+    if (
+      category?.type === ChannelType.GuildCategory &&
+      forum?.type === ChannelType.GuildForum &&
+      invite?.type === ChannelType.GuildText
+    ) {
+      return true;
+    }
+  }
+  const find = () => {
+    const category = findCategoryByName(guild);
+    return category !== null && findForumChannel(guild) !== null && findInviteChannel(guild) !== null;
   };
   if (find()) return true;
   await guild.channels.fetch().catch(() => undefined);
@@ -151,16 +219,19 @@ export function resolveTargetMeetup(guild: Guild, interaction: ChatInputCommandI
 
 export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
   requireLayoutPermissions(guild);
-  let category = guild.channels.cache.find(
-    (channel): channel is CategoryChannel =>
-      channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
-  );
+  const stored = readStoredLayout(guild.id);
+
+  let category: CategoryChannel | null = null;
+  if (stored) {
+    const resolved = await resolveChannelById(guild, stored.category_id);
+    if (resolved?.type === ChannelType.GuildCategory) category = resolved;
+  }
   if (!category) {
-    await guild.channels.fetch();
-    category = guild.channels.cache.find(
-      (channel): channel is CategoryChannel =>
-        channel.type === ChannelType.GuildCategory && channel.name === config.categoryName,
-    );
+    category = findCategoryByName(guild);
+    if (!category) {
+      await guild.channels.fetch().catch(() => undefined);
+      category = findCategoryByName(guild);
+    }
   }
   if (!category) {
     category = await guild.channels.create({
@@ -172,15 +243,23 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
   // Without ViewChannel the bot can neither see nor fix the channels it creates below the category.
   if (!botCanView(guild, category)) throw new Error(layoutPermissionGuidance());
 
-  // The layout rules live on the category; channels below it inherit them.
+  // The layout rules live on the category; channels that stay there inherit them.
   await applyLayoutPermissions(guild, category);
 
-  let forum = guild.channels.cache.find(
-    (channel): channel is ForumChannel =>
-      channel.parentId === category!.id &&
-      channel.type === ChannelType.GuildForum &&
-      isForumName(channel.name),
-  );
+  let forum: ForumChannel | null = null;
+  let adoptedForumByName = false;
+  if (stored) {
+    const resolved = await resolveChannelById(guild, stored.forum_id);
+    if (resolved?.type === ChannelType.GuildForum) forum = resolved;
+  }
+  if (!forum) {
+    forum = findForumChannel(guild, category.id);
+    if (!forum) {
+      await guild.channels.fetch().catch(() => undefined);
+      forum = findForumChannel(guild, category.id);
+    }
+    if (forum) adoptedForumByName = true;
+  }
   if (!forum) {
     forum = await guild.channels.create({
       name: config.forumName,
@@ -189,16 +268,23 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
     });
   }
 
-  if (forum.name !== config.forumName) {
+  // Legacy names are migrated only when the channel was adopted by name, not when its id is tracked.
+  if (adoptedForumByName && forum.name !== config.forumName) {
     await forum.setName(config.forumName).catch(() => undefined);
   }
 
-  let inviteChannel = guild.channels.cache.find(
-    (channel): channel is TextChannel =>
-      channel.parentId === category!.id &&
-      channel.type === ChannelType.GuildText &&
-      channel.name === config.inviteName,
-  );
+  let inviteChannel: TextChannel | null = null;
+  if (stored) {
+    const resolved = await resolveChannelById(guild, stored.invite_channel_id);
+    if (resolved?.type === ChannelType.GuildText) inviteChannel = resolved;
+  }
+  if (!inviteChannel) {
+    inviteChannel = findInviteChannel(guild, category.id);
+    if (!inviteChannel) {
+      await guild.channels.fetch().catch(() => undefined);
+      inviteChannel = findInviteChannel(guild, category.id);
+    }
+  }
   if (!inviteChannel) {
     inviteChannel = await guild.channels.create({
       name: config.inviteName,
@@ -207,17 +293,35 @@ export async function ensureLayout(guild: Guild): Promise<GuildLayout> {
     });
   }
 
-  // Discord copies the category overwrites onto new channels; drop the copies so later category
-  // edits still apply. Report the layout as ready only when the bot can actually use it.
+  saveStoredLayout(guild.id, category.id, forum.id, inviteChannel.id);
+
   for (const channel of [forum, inviteChannel]) {
-    if (channel.permissionOverwrites.cache.size > 0) {
-      await channel.permissionOverwrites.set([]).catch(() => undefined);
+    if (channel.parentId === category.id) {
+      // Inherit the category rules so future category edits keep applying.
+      if (channel.permissionOverwrites.cache.size > 0) {
+        await channel.permissionOverwrites.set([]).catch(() => undefined);
+      }
+    } else {
+      // Moved out of the layout category: apply only the fixed rules directly on the channel.
+      await channel.permissionOverwrites
+        .edit(guild.roles.everyone, LAYOUT_EVERYONE_PERMISSIONS)
+        .catch(() => undefined);
+      if (guild.members.me) {
+        await channel.permissionOverwrites
+          .edit(guild.members.me, LAYOUT_BOT_PERMISSIONS)
+          .catch(() => undefined);
+      }
     }
     if (!botCanView(guild, channel)) throw new Error(layoutPermissionGuidance());
   }
 
-  if (forum.position !== 0) await forum.setPosition(0).catch(() => undefined);
-  if (inviteChannel.position !== 1) await inviteChannel.setPosition(1).catch(() => undefined);
+  // Never drag a deliberately moved channel back; only order the channels still in the category.
+  if (forum.parentId === category.id && forum.position !== 0) {
+    await forum.setPosition(0).catch(() => undefined);
+  }
+  if (inviteChannel.parentId === category.id && inviteChannel.position !== 1) {
+    await inviteChannel.setPosition(1).catch(() => undefined);
+  }
   return { category, forum, inviteChannel };
 }
 
