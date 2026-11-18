@@ -6,9 +6,8 @@ process.env.DB_PATH = join(tmpdir(), `meetupper-ops-test-${process.pid}-${Date.n
 const { db } = await import("../src/db.ts");
 db.exec("DELETE FROM meetups");
 
-const { addCohost, createMeetup, getMeetup, getParticipant, setParticipantState } = await import(
-  "../src/core/meetup.ts"
-);
+const { addCohost, createMeetup, getMeetup, getParticipant, setParticipantState, updateMeetup } =
+  await import("../src/core/meetup.ts");
 const { formatInZone } = await import("../src/core/time.ts");
 await import("../src/features/ops.ts");
 const { findButton, findModal, getSubcommands } = await import("../src/core/registry.ts");
@@ -226,4 +225,40 @@ test("cohosts may cancel and the confirmation applies the cancellation", async (
 
   expect(getMeetup(meetup.id)?.state).toBe("CANCELLED");
   expect(JSON.stringify(click.calls[0]?.payload)).toContain("MeetUpを中止しました");
+});
+
+test("archiving closes and locks the Public recruitment thread", async () => {
+  const meetup = makeMeetup();
+  updateMeetup(meetup.id, { forumThreadId: "thread-archive-1" });
+
+  const locked: boolean[] = [];
+  const archived: boolean[] = [];
+  const thread = {
+    isThread: () => true,
+    setLocked: async (value: boolean) => {
+      locked.push(value);
+    },
+    setArchived: async (value: boolean) => {
+      archived.push(value);
+    },
+  };
+  const guild = {
+    id: "g1",
+    channels: { fetch: async (id: string) => (id === "thread-archive-1" ? thread : null) },
+  };
+
+  const { interaction, calls } = slash(meetup.id);
+  (interaction as { guild: unknown }).guild = guild;
+  await subcommand("archive").execute(interaction as never);
+  const confirmId = customIds(calls[0]?.payload).find((id) => id.startsWith("ops:confirm:archive:"));
+  expect(confirmId).toBeDefined();
+
+  const routed = findButton(confirmId!)!;
+  const click = fakeInteraction({ customId: confirmId });
+  (click.interaction as { guild: unknown }).guild = guild;
+  await routed.handler(click.interaction as never, routed.args);
+
+  expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
+  expect(locked).toEqual([true]);
+  expect(archived).toEqual([true]);
 });

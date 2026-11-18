@@ -475,6 +475,15 @@ export async function archiveChannel(guild: Guild, meetup: Meetup): Promise<void
   await channel.setPosition(9999).catch(() => undefined);
 }
 
+/** Locks and archives the Public recruitment thread when the MeetUp is archived. */
+export async function closeRecruitmentThread(guild: Guild, meetup: Meetup): Promise<void> {
+  if (meetup.mode !== "PUBLIC" || !meetup.forumThreadId) return;
+  const thread = await guild.channels.fetch(meetup.forumThreadId).catch(() => null);
+  if (!thread || !thread.isThread()) return;
+  await thread.setLocked(true).catch(() => undefined);
+  await thread.setArchived(true).catch(() => undefined);
+}
+
 export async function moveChannelToBottom(channel: TextChannel): Promise<void> {
   await channel.setPosition(9999).catch(() => undefined);
 }

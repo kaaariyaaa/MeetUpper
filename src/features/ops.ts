@@ -16,6 +16,7 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import {
   archiveChannel,
+  closeRecruitmentThread,
   meetupFromInteraction,
   messageEmbed,
   replyEphemeral,
@@ -647,6 +648,7 @@ button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction
       await syncMeetupAccess(guild, updated).catch((error) =>
         console.error("アーカイブ後の権限同期に失敗しました", error),
       );
+      await closeRecruitmentThread(guild, updated);
       if (updated.eventId) await cancelEvent(guild, updated);
       return;
     }
