@@ -18,6 +18,7 @@ import {
   getMeetup,
   getParticipant,
   hasVoted,
+  isParticipationOpen,
   listCohosts,
   listMeetups,
   listParticipants,
@@ -53,6 +54,7 @@ const NOT_RECRUITING = "このMeetUpは現在募集していません";
 
 /** Returns the reason this user cannot apply, or null when they may apply. */
 export function applicationDenial(meetup: Meetup, userId: string): string | null {
+  if (!isParticipationOpen(meetup)) return "開始済みのMeetUpには参加申請できません";
   if (canManage(meetup, userId)) return "主催者側は参加申請できません";
 
   const participant = getParticipant(meetup.id, userId);
@@ -190,7 +192,7 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
     }
     await deferEphemeral(interaction);
     const meetup = getMeetup(meetupId);
-    if (!meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
+    if (!meetup || meetup.guildId !== guild.id || !isParticipationOpen(meetup)) {
       await replyEphemeral(interaction, NOT_RECRUITING);
       return;
     }
@@ -259,7 +261,7 @@ async function loadActiveMeetup(
     return null;
   }
   const meetup = getMeetup(meetupId);
-  if (!meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
+  if (!meetup || meetup.guildId !== guild.id || !isParticipationOpen(meetup)) {
     await replyEphemeral(interaction, NOT_RECRUITING);
     return null;
   }

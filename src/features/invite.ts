@@ -33,6 +33,7 @@ import {
   canManage,
   countApproved,
   createInviteRequest,
+  isParticipationOpen,
   decideInviteRequest,
   deleteParticipant,
   getInviteRequest,
@@ -355,8 +356,8 @@ subcommand(
           await replyEphemeral(interaction, "MeetUpが見つかりません");
           return;
         }
-        if (meetup.state !== "ACTIVE") {
-          await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
+        if (!isParticipationOpen(meetup)) {
+          await replyEphemeral(interaction, "開始済みまたは終了したMeetUpには招待できません");
           return;
         }
         if (!canInvite(meetup, interaction.user.id)) {
@@ -385,8 +386,8 @@ button(/^people:invite-open:(\d+)$/, async (interaction, args) => {
       await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
-    if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "終了または中止されたMeetUpには招待できません");
+    if (!isParticipationOpen(meetup)) {
+      await replyEphemeral(interaction, "開始済みまたは終了したMeetUpには招待できません");
       return;
     }
     if (!canInvite(meetup, interaction.user.id)) {
@@ -415,7 +416,7 @@ selectMenu(/^people:invite-meetup:([0-9a-z]+)$/, async (interaction, args) => {
       !guild ||
       !meetup ||
       meetup.guildId !== guild.id ||
-      meetup.state !== "ACTIVE" ||
+      !isParticipationOpen(meetup) ||
       !canInvite(meetup, interaction.user.id)
     ) {
       await replyEphemeral(interaction, "このMeetUpには招待できません");
@@ -439,7 +440,7 @@ selectMenu(/^people:invite-target:([0-9a-z]+)$/, async (interaction, args) => {
       return;
     }
     const meetup = meetupForSession(interaction, session);
-    if (!meetup || meetup.state !== "ACTIVE") {
+    if (!meetup || !isParticipationOpen(meetup)) {
       await replyEphemeral(interaction, "このMeetUpには招待できません");
       return;
     }
@@ -477,7 +478,7 @@ button(/^people:invite-confirm:([0-9a-z]+)$/, async (interaction, args) => {
     await interaction.deferUpdate();
     const guild = interaction.guild;
     const meetup = session.data.meetupId === null ? null : getMeetup(session.data.meetupId);
-    if (!guild || !meetup || meetup.guildId !== guild.id || meetup.state !== "ACTIVE") {
+    if (!guild || !meetup || meetup.guildId !== guild.id || !isParticipationOpen(meetup)) {
       await replyEphemeral(interaction, "このMeetUpには招待できません");
       return;
     }
@@ -581,7 +582,7 @@ button(/^invite:accept:(\d+)$/, async (interaction, args) => {
       await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
-    if (meetup.state !== "ACTIVE") {
+    if (!isParticipationOpen(meetup)) {
       await replyEphemeral(interaction, "このMeetUpは現在参加を受け付けていません");
       return;
     }
@@ -668,8 +669,8 @@ button(/^invite:approve:(\d+)$/, async (interaction, args) => {
       await replyEphemeral(interaction, "MeetUpが見つかりません");
       return;
     }
-    if (meetup.state !== "ACTIVE") {
-      await replyEphemeral(interaction, "終了または中止されたMeetUpでは操作できません");
+    if (!isParticipationOpen(meetup)) {
+      await replyEphemeral(interaction, "開始済みまたは終了したMeetUpでは招待を承認できません");
       return;
     }
     if (!canManage(meetup, interaction.user.id)) {

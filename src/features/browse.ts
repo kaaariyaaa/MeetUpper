@@ -9,7 +9,15 @@ import {
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import { deferEphemeral, meetupFromInteraction, replyEphemeral, replyError } from "../core/discord.ts";
-import { canManage, getMeetup, getParticipant, isHost, listMeetups, listParticipants } from "../core/meetup.ts";
+import {
+  canManage,
+  getMeetup,
+  getParticipant,
+  isHost,
+  isParticipationOpen,
+  listMeetups,
+  listParticipants,
+} from "../core/meetup.ts";
 import { button, selectMenu, subcommand } from "../core/registry.ts";
 import type { Meetup, ParticipantState } from "../core/types.ts";
 import {
@@ -168,9 +176,10 @@ export function meetupDetailComponents(
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   const manager = canManage(meetup, userId);
   const active = meetup.state === "ACTIVE";
+  const open = isParticipationOpen(meetup);
   const actions: ButtonBuilder[] = [];
 
-  if (active && applicationDenial(meetup, userId) === null) {
+  if (open && applicationDenial(meetup, userId) === null) {
     actions.push(
       new ButtonBuilder()
         .setCustomId(`apply:start:${meetup.id}`)
@@ -188,10 +197,10 @@ export function meetupDetailComponents(
         linkButton(`people:host-open:${meetup.id}`, "主催者変更"),
       );
     }
+    if (open) {
+      actions.unshift(linkButton(`people:invite-open:${meetup.id}`, "招待"));
+    }
     if (active) {
-      actions.unshift(
-        linkButton(`people:invite-open:${meetup.id}`, "招待"),
-      );
       actions.push(
         linkButton(`edit:open:${meetup.id}`, "編集"),
         linkButton(`ops:info-open:${meetup.id}`, "集合情報"),
@@ -201,10 +210,8 @@ export function meetupDetailComponents(
     if (meetup.state !== "ARCHIVED") actions.push(linkButton(`ops:archive-open:${meetup.id}`, "アーカイブ"));
     if (active) actions.push(dangerButton(`ops:cancel-open:${meetup.id}`, "中止"));
   } else if (active && getParticipant(meetup.id, userId)?.state === "APPROVED") {
-    actions.push(
-      linkButton(`people:invite-open:${meetup.id}`, "招待"),
-      dangerButton(`ops:leave-open:${meetup.id}`, "キャンセル"),
-    );
+    if (open) actions.push(linkButton(`people:invite-open:${meetup.id}`, "招待"));
+    actions.push(dangerButton(`ops:leave-open:${meetup.id}`, "キャンセル"));
   }
 
   const rows = chunkButtons(actions);

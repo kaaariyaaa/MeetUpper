@@ -169,3 +169,10 @@ test("members panel groups states and paginates", () => {
 
   expect(membersPanel(meetup, 99).page).toBe(1);
 });
+
+test("started meetups hide participation and invitation entry points", () => {
+  const meetup = newMeetup({ guildId: "g-started", hostId: "host", startAt: Date.now() - 60_000 });
+  const ids = componentIds(meetupDetailComponents(meetup, "host"));
+  expect(ids).not.toContain(`apply:start:${meetup.id}`);
+  expect(ids).not.toContain(`people:invite-open:${meetup.id}`);
+});

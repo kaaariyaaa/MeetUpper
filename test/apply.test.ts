@@ -320,3 +320,9 @@ test("recruitment button label follows the join mode", () => {
   const approval = applyButtonRow(newMeetup({ approvalMode: "HOST" })).toJSON();
   expect(JSON.stringify(approval)).toContain("参加申請");
 });
+
+test("started meetups reject applications and are excluded from the joinable list", () => {
+  const meetup = newMeetup({ startAt: Date.now() - 60_000, guildId: "g-started" });
+  expect(applicationDenial(meetup, "user")).toContain("開始済み");
+  expect(joinableMeetups("g-started", "user").map((item) => item.id)).not.toContain(meetup.id);
+});

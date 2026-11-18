@@ -175,6 +175,11 @@ export function removeCohost(meetupId: number, userId: string): void {
   db.query("DELETE FROM cohosts WHERE meetup_id = ? AND user_id = ?").run(meetupId, userId);
 }
 
+/** New applications/joins/invitations are only accepted before the start time. */
+export function isParticipationOpen(meetup: Meetup, now = Date.now()): boolean {
+  return meetup.state === "ACTIVE" && meetup.startAt > now;
+}
+
 export function isHost(meetup: Meetup, userId: string): boolean {
   return meetup.hostId === userId;
 }
