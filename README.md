@@ -11,6 +11,7 @@ MeetUpper は、Discord サーバーでMeetUpの募集・招待から参加管�
 - **開催情報の共有**: 集合時間・集合場所を専用チャンネルで管理
 - **自動リマインダー**: MeetUpごとにON/OFFと通知時刻（ONは1〜5件）を設定。プリセットまたは自由入力（最短1分前）を使え、集合時間を基準に専用チャンネルへ通知する
 - **イベント連携とアーカイブ**: Public MeetUpの Discord スケジュールイベント連携、手動アーカイブ
+- **Discord内で完結するUI**: コマンドは対象MeetUpの指定だけ。作成・編集・招待・参加者管理はボタン・セレクトメニュー・モーダルで操作する
 
 ## MeetUpの種類
 
@@ -19,7 +20,7 @@ MeetUpper は、Discord サーバーでMeetUpの募集・招待から参加管�
 | 募集方法 | `meetup募集` フォーラムに掲載 | 招待されたメンバーに案内 |
 | 参加方法 | 募集投稿のボタンまたは `/meetupper apply` から申請 | 招待に回答して参加。招待を辞退した人は再申請も可能 |
 | 参加の決定 | 主催者・共同主催者の承認、または参加確定者による投票 | 招待への参加回答で確定。辞退後の再申請には主催者側の承認が必要 |
-| Discord スケジュールイベント | 作成時に `event: true` を指定すると連携 | 連携しない |
+| Discord スケジュールイベント | 作成後の編集画面でONにすると連携（初期値はOFF） | 連携しない |
 
 どちらの形式でも、集合場所などの詳細を扱う専用チャンネルは非公開です。主催者・共同主催者と参加確定者が閲覧できます。
 
@@ -71,7 +72,7 @@ bun run start
 /meetupper init
 ```
 
-`MeetUp` カテゴリ、`meetup募集` フォーラム、`招待` チャンネルが作成されます。同名のチャンネルがあれば再利用されます。その後、サーバーメンバーは `/meetupper create` でMeetUpを作成できます。
+`/meetupper init` は作成・再利用するチャンネルを確認パネルに表示し、「実行する」を押すと `MeetUp` カテゴリ、`meetup募集` フォーラム、`招待` チャンネルを作成します。同名のチャンネルがあれば再利用されます。その後、サーバーメンバーは `/meetupper create` の作成モーダルからMeetUpを作成できます。
 
 Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は [docs/SETUP.md](docs/SETUP.md) に記載しています。
 
@@ -79,27 +80,38 @@ Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は 
 
 | コマンド | 用途 |
 | --- | --- |
-| `/meetupper create` | MeetUpを作成する |
-| `/meetupper list` | 閲覧できる開催中のMeetUpを一覧表示する |
-| `/meetupper show` | MeetUpの詳細を確認する |
-| `/meetupper apply` | MeetUpへの参加を申請する |
-| `/meetupper invite` | メンバーを招待する |
-| `/meetupper kick` | 参加確定者をMeetUpから退出させる |
-| `/meetupper edit` | MeetUp名・説明・定員・開催日時を変更する |
-| `/meetupper info` | 集合時間・集合場所を変更する |
-| `/meetupper reminder` | 自動リマインダーのON/OFF・通知時刻（ONは1〜5件）を設定する |
-| `/meetupper archive` | MeetUpを手動でアーカイブする |
-| `/meetupper cancel` | MeetUpを中止する |
+| `/meetupper init` | サーバーのカテゴリ・フォーラム・招待チャンネルを初期化する（管理者） |
+| `/meetupper create` | 作成モーダルからMeetUpを作成する |
+| `/meetupper list` | 募集中 / 参加中 / 管理中を切り替えてMeetUpを探す |
+| `/meetupper show [meetup]` | MeetUpの詳細と操作ボタンを表示する |
+| `/meetupper apply [meetup]` | MeetUpへの参加を申請する |
+| `/meetupper invite [meetup]` | ユーザーを選んで招待する |
+| `/meetupper members [meetup]` | 参加者と状態の一覧を表示する（主催者側） |
+| `/meetupper leave [meetup]` | 参加をキャンセルする |
+| `/meetupper kick [meetup]` | 参加確定者を退出させる（主催者側） |
+| `/meetupper cohost [meetup]` | 共同主催者を追加・削除する（主催者） |
+| `/meetupper host [meetup]` | 主催者を変更する（主催者） |
+| `/meetupper edit [meetup]` | 設定ハブで基本情報・参加方法・集合情報などを編集して保存する |
+| `/meetupper info [meetup]` | 集合時間・集合場所を入力して保存する |
+| `/meetupper reminder [meetup]` | 自動リマインダーのON/OFF・通知時刻を設定する |
+| `/meetupper archive [meetup]` | 確認のうえMeetUpをアーカイブする |
+| `/meetupper cancel [meetup]` | 確認のうえMeetUpを中止する |
 
-`meetup`（MeetUp ID）は、MeetUpの専用チャンネルや募集スレッド内で実行する場合は省略できます。
+`[meetup]` は任意です。MeetUpの専用チャンネルや募集スレッド内では省略でき、それ以外の場所で省略した場合は対象を選ぶ一覧が表示されます。
 
-`/meetupper create` では `name`（名前）、`start`（開催日時）、`mode`（公開形式）が必須です。`capacity`（定員）は任意で、省略すると定員なしになります。開催日時は `YYYY-MM-DD HH:mm` 形式、またはタイムゾーンのオフセットを含む ISO 8601 形式で入力できます。前者は `DEFAULT_TIMEZONE` に従って解釈されます。
+### 作成と編集
 
-参加方法は `approval` で選び、`DIRECT`（直参加・既定）、`HOST`（主催者承認）、`VOTE`（参加者投票）があります。`VOTE` を選ぶ場合は `required-votes` も指定します。投票できるのは参加確定者だけなので、最初の参加確定者は主催者側から招待する必要があります。Discord スケジュールイベント連携は既定で無効です。
+`/meetupper create` は1つのモーダルを開き、**公開モード（Public / Private）・参加方法（直参加 / 主催者承認 / 参加者投票）・MeetUp名・開催日時**の4項目を入力します。開催日時は `YYYY-MM-DD HH:mm` 形式で、`DEFAULT_TIMEZONE`（既定は `Asia/Tokyo`）に従って解釈されます。
 
-自動リマインダーは作成時に既定でONです（`reminder:false` で無効化）。通知時刻は既定で1日前・3時間前・30分前で、作成後に `/meetupper reminder` の専用画面で追加・変更・削除できます。ONの間は1〜5件、OFFなら0件でも構いません。
+作成時は定員なし・説明なし・集合情報なし・共同主催者なし・イベント連携OFF・自動リマインダーON（1日前・3時間前・30分前）で始まります。Private の参加方法は主催者承認固定です。参加者投票の必要票数は初期値1で、作成後に `/meetupper edit` で変更します。
 
-コマンドごとの権限、引数、ボタン操作は [コマンド一覧](docs/COMMANDS.md) を参照してください。
+MeetUp名・説明・定員・開催日時・参加方法・集合情報・イベント連携は `/meetupper edit` の設定ハブで編集します。変更は「保存」を押すまで反映されず、「キャンセル」で破棄されます。日時を変えるとリマインダー・スケジュールイベント・募集投稿も更新されます。
+
+### 画面の共通ルール
+
+すべての画面は実行者だけに表示され、15分で期限切れになります。操作のたびに実行者・ギルド・MeetUpの状態・権限を確認します。退出・キック・主催者変更・中止・アーカイブ・招待送信は確認ボタンを挟みます。
+
+コマンドごとの権限、画面の詳細、画面間リンクは [コマンド一覧](docs/COMMANDS.md) を参照してください。
 
 ## 開発・テスト
 
