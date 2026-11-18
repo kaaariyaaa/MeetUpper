@@ -11,6 +11,7 @@ import {
   type Guild,
   type RepliableInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from "discord.js";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
@@ -58,7 +59,11 @@ import type { Meetup } from "../core/types.ts";
 import { dateTimeHint, meetupEmbed } from "../core/views.ts";
 
 type OpsAction = "info" | "leave" | "archive" | "cancel" | "init";
-type ModalOpener = ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction;
+type ModalOpener =
+  | ChatInputCommandInteraction
+  | ButtonInteraction
+  | StringSelectMenuInteraction
+  | UserSelectMenuInteraction;
 
 interface OpsSessionData {
   action: OpsAction;
@@ -328,10 +333,15 @@ modal(/^ops:info-modal:(\d+)$/, async (interaction, args) => {
         await replyEphemeral(interaction, `集合時間の形式が正しくありません。${dateTimeHint()}`);
         return;
       }
-      try {
-        validateMeetingTime(meetup.startAt, parsed);
-      } catch (error) {
-        await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+      if (parsed !== meetup.meetingAt) {
+        try {
+          validateMeetingTime(meetup.startAt, parsed);
+        } catch (error) {
+          await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
+          return;
+        }
+      } else if (parsed > meetup.startAt) {
+        await replyEphemeral(interaction, "集合時間は開催日時より後に設定できません。");
         return;
       }
       meetingAt = parsed;

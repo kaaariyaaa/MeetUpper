@@ -420,5 +420,5 @@ MeetUpが中止・アーカイブされた場合も、履歴の保存期間は�
 - [通知設定・予定・履歴・再試行のDB操作](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/core/reminders.ts)
 - [送信・再試行・失敗通知の実行処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/core/reminderEngine.ts)
 - [データベース定義](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/db.ts)
-- [日時変更時の再計算処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/features/manage.ts)
+- [日時変更時の再計算処理](https://github.com/kaaariyaaa/MeetUpper/blob/main/src/features/edit.ts)
 - [実装上の既存の決定事項](https://github.com/kaaariyaaa/MeetUpper/blob/main/docs/DECISIONS.md)

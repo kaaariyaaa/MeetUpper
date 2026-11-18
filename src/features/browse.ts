@@ -188,7 +188,10 @@ export function meetupDetailComponents(
     if (meetup.state !== "ARCHIVED") actions.push(linkButton(`ops:archive-open:${meetup.id}`, "アーカイブ"));
     if (active) actions.push(dangerButton(`ops:cancel-open:${meetup.id}`, "中止"));
   } else if (active && getParticipant(meetup.id, userId)?.state === "APPROVED") {
-    actions.push(dangerButton(`ops:leave-open:${meetup.id}`, "キャンセル"));
+    actions.push(
+      linkButton(`people:invite-open:${meetup.id}`, "招待"),
+      dangerButton(`ops:leave-open:${meetup.id}`, "キャンセル"),
+    );
   }
 
   const rows = chunkButtons(actions);

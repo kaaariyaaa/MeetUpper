@@ -299,7 +299,7 @@ async function submitInviteRequest(
 }
 
 function meetupForSession(
-  interaction: StringSelectMenuInteraction,
+  interaction: StringSelectMenuInteraction | UserSelectMenuInteraction,
   session: UiSession<InviteFlowData>,
 ): Meetup | null {
   const guild = interaction.guild;

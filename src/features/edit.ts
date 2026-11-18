@@ -15,6 +15,7 @@ import {
   type MessageActionRowComponentBuilder,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from "discord.js";
 import { db } from "../db.ts";
 import {
@@ -33,7 +34,6 @@ import {
   isHost,
   listCohosts,
   updateMeetup,
-  validateMeetingTime,
 } from "../core/meetup.ts";
 import {
   formatOffset,
@@ -96,7 +96,12 @@ function approvalText(draft: EditDraft): string {
 }
 
 /** Cross-field rules; enforced both when a sub-screen is submitted and again at save. */
-export function validateDraft(draft: EditDraft, mode: Meetup["mode"], now = Date.now()): void {
+export function validateDraft(
+  draft: EditDraft,
+  mode: Meetup["mode"],
+  now = Date.now(),
+  options: { originalMeetingAt?: number | null } = {},
+): void {
   if (!draft.name.trim()) throw new Error("MeetUp名を入力してください。");
   if (draft.name.trim().length > 100) throw new Error("MeetUp名は100文字以内で入力してください。");
   if (!Number.isInteger(draft.capacity) || draft.capacity < 0 || draft.capacity > 1000) {
@@ -114,8 +119,17 @@ export function validateDraft(draft: EditDraft, mode: Meetup["mode"], now = Date
   if (mode !== "PUBLIC" && draft.eventEnabled) {
     throw new Error("イベント連携はPublicのMeetUpのみ設定できます。");
   }
-  // validateMeetingTime covers both "not past" and "not after the start time".
-  validateMeetingTime(draft.startAt, draft.meetingAt, now);
+  if (draft.meetingAt !== null) {
+    if (draft.meetingAt > draft.startAt) {
+      throw new Error("集合時間は開催日時より後に設定できません。");
+    }
+    // An already stored past meeting time may remain; only a newly changed one must be future.
+    const meetingChanged =
+      options.originalMeetingAt === undefined || options.originalMeetingAt !== draft.meetingAt;
+    if (meetingChanged && draft.meetingAt <= now) {
+      throw new Error("集合時間には未来の日時を指定してください。");
+    }
+  }
 }
 
 function reminderStatus(meetupId: number): string {
@@ -299,7 +313,11 @@ function votesModal(sessionId: string, draft: EditDraft): ModalBuilder {
 }
 
 async function renderHub(
-  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
+    | ModalSubmitInteraction,
   meetup: Meetup,
   draft: EditDraft,
   sessionId: string,
@@ -386,7 +404,11 @@ interface ResolvedSession {
 }
 
 async function resolveSession(
-  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
+    | ModalSubmitInteraction,
   sessionId: string,
 ): Promise<ResolvedSession | null> {
   const session = getUiSession<EditDraft>(interaction, sessionId);
@@ -454,7 +476,7 @@ export async function commitDraft(
   draft: EditDraft,
   now = Date.now(),
 ): Promise<{ updated: Meetup; warnings: string[]; changed: boolean }> {
-  validateDraft(draft, meetup.mode, now);
+  validateDraft(draft, meetup.mode, now, { originalMeetingAt: meetup.meetingAt });
   const changed = !sameDraft(meetup, draft);
   if (!changed) return { updated: meetup, warnings: [], changed: false };
 
@@ -708,7 +730,7 @@ modal(/^edit:basic:([A-Za-z0-9]+)$/, async (interaction, args) => {
       throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
     }
     const candidate: EditDraft = { ...draft, name, description, capacity, startAt };
-    validateDraft(candidate, meetup.mode);
+    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {
@@ -734,7 +756,7 @@ modal(/^edit:meeting:([A-Za-z0-9]+)$/, async (interaction, args) => {
     }
     const meetingPlace = interaction.fields.getTextInputValue("meeting-place").trim() || null;
     const candidate: EditDraft = { ...draft, meetingAt, meetingPlace };
-    validateDraft(candidate, meetup.mode);
+    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {
@@ -754,7 +776,7 @@ modal(/^edit:votes:([A-Za-z0-9]+)$/, async (interaction, args) => {
       100,
     );
     const candidate: EditDraft = { ...draft, requiredVotes };
-    validateDraft(candidate, meetup.mode);
+    validateDraft(candidate, meetup.mode, Date.now(), { originalMeetingAt: meetup.meetingAt });
     Object.assign(draft, candidate);
     await renderHub(interaction, meetup, draft, sessionId);
   } catch (error) {

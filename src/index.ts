@@ -76,7 +76,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await routed.handler(interaction, routed.args);
       return;
     }
-    if (interaction.isStringSelectMenu()) {
+    if (interaction.isStringSelectMenu() || interaction.isUserSelectMenu()) {
       const routed = findSelectMenu(interaction.customId);
       if (!routed) {
         await replyEphemeral(interaction, "この操作は現在利用できません。");

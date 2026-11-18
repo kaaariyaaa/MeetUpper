@@ -394,13 +394,13 @@ test("validation blocks past or late meeting times and start before meeting time
   expect(getMeetup(meetup.id)!.name).toBe("編集テストMeetUp");
 });
 
-test("保存 re-validates a draft whose meeting time has gone stale", async () => {
+test("保存 keeps an already stored past meeting time", async () => {
   const meetup = makeMeetup({ meetingAt: Date.now() - HOUR });
   const calls = await openHub(meetup.id);
   const id = sessionIdFrom(calls);
 
   const saved = await click(`edit:save:${id}`);
-  expect(panelText(asPayload(saved.updates[saved.updates.length - 1]))).toContain("未来の日時");
+  expect(panelText(asPayload(saved.updates[saved.updates.length - 1]))).toContain("変更はありません");
   expect(getMeetup(meetup.id)!.meetingAt).toBe(meetup.meetingAt);
 });
 

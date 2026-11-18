@@ -15,6 +15,7 @@ import {
   type MessageActionRowComponentBuilder,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from "discord.js";
 import {
   deferEphemeral,
@@ -221,7 +222,11 @@ function panelComponents(draft: Draft): ActionRowBuilder<MessageActionRowCompone
 }
 
 async function resolveDraft(
-  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
+    | ModalSubmitInteraction,
 ): Promise<{ draft: Draft; meetup: Meetup } | null> {
   const id = interaction.customId.split(":")[2] ?? "";
   const draft = getDraft(id);
@@ -310,7 +315,11 @@ function historyComponents(draft: Draft, page: number, total: number): ActionRow
 }
 
 async function updatePanel(
-  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
+    | ModalSubmitInteraction,
   draft: Draft,
   meetup: Meetup,
   notice?: string,

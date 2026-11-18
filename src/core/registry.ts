@@ -5,12 +5,16 @@ import type {
   ModalSubmitInteraction,
   SlashCommandSubcommandBuilder,
   StringSelectMenuInteraction,
+  UserSelectMenuInteraction,
 } from "discord.js";
 
 export type SubcommandExecute = (interaction: ChatInputCommandInteraction) => Promise<unknown>;
 export type ButtonExecute = (interaction: ButtonInteraction, args: string[]) => Promise<unknown>;
 export type ModalExecute = (interaction: ModalSubmitInteraction, args: string[]) => Promise<unknown>;
-export type SelectMenuExecute = (interaction: StringSelectMenuInteraction, args: string[]) => Promise<unknown>;
+export type SelectMenuExecute = (
+  interaction: StringSelectMenuInteraction | UserSelectMenuInteraction,
+  args: string[],
+) => Promise<unknown>;
 export type Setup = (client: Client) => void | Promise<void>;
 
 interface SubcommandEntry {
