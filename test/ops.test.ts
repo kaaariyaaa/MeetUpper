@@ -6,8 +6,15 @@ process.env.DB_PATH = join(tmpdir(), `meetupper-ops-test-${process.pid}-${Date.n
 const { db } = await import("../src/db.ts");
 db.exec("DELETE FROM meetups");
 
-const { addCohost, createMeetup, getMeetup, getParticipant, setParticipantState, updateMeetup } =
-  await import("../src/core/meetup.ts");
+const {
+  addCohost,
+  createMeetup,
+  getMeetup,
+  getParticipant,
+  isRecruitmentClosed,
+  setParticipantState,
+  updateMeetup,
+} = await import("../src/core/meetup.ts");
 const { formatInZone } = await import("../src/core/time.ts");
 await import("../src/features/ops.ts");
 const { findButton, findModal, getSubcommands } = await import("../src/core/registry.ts");
@@ -261,4 +268,5 @@ test("archiving closes and locks the Public recruitment thread", async () => {
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
   expect(locked).toEqual([true]);
   expect(archived).toEqual([true]);
+  expect(isRecruitmentClosed(meetup.id)).toBe(true);
 });

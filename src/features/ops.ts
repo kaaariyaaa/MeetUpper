@@ -37,6 +37,7 @@ import {
   listCohosts,
   listMeetups,
   listParticipants,
+  markRecruitmentClosed,
   setParticipantState,
   updateMeetup,
   validateMeetingTime,
@@ -648,7 +649,7 @@ button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction
       await syncMeetupAccess(guild, updated).catch((error) =>
         console.error("アーカイブ後の権限同期に失敗しました", error),
       );
-      await closeRecruitmentThread(guild, updated);
+      if (await closeRecruitmentThread(guild, updated)) markRecruitmentClosed(updated.id);
       if (updated.eventId) await cancelEvent(guild, updated);
       return;
     }
@@ -665,6 +666,7 @@ button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction
       embeds: [messageEmbed("MeetUpを中止しました。")],
       components: [meetupNavRow(updated.id)],
     });
+    if (await closeRecruitmentThread(guild, updated)) markRecruitmentClosed(updated.id);
     await cancelEvent(guild, updated);
     const message = `MeetUpが中止されました: ${updated.name}`;
     await notifyChannel(guild, updated, message);

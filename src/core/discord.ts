@@ -610,13 +610,30 @@ export async function archiveChannel(guild: Guild, meetup: Meetup): Promise<void
   await channel.setPosition(9999).catch(() => undefined);
 }
 
-/** Locks and archives the Public recruitment thread when the MeetUp is archived. */
-export async function closeRecruitmentThread(guild: Guild, meetup: Meetup): Promise<void> {
-  if (meetup.mode !== "PUBLIC" || !meetup.forumThreadId) return;
-  const thread = await guild.channels.fetch(meetup.forumThreadId).catch(() => null);
-  if (!thread || !thread.isThread()) return;
-  await thread.setLocked(true).catch(() => undefined);
-  await thread.setArchived(true).catch(() => undefined);
+/** Locks and archives the Public recruitment thread. Returns false only when Discord rejected it. */
+export async function closeRecruitmentThread(guild: Guild, meetup: Meetup): Promise<boolean> {
+  if (meetup.mode !== "PUBLIC" || !meetup.forumThreadId) return true;
+  let thread;
+  try {
+    thread = await guild.channels.fetch(meetup.forumThreadId);
+  } catch (error) {
+    // A deleted thread is already closed; other failures must be retried later.
+    if (error instanceof DiscordAPIError && (error.code === 10003 || error.status === 404)) return true;
+    return false;
+  }
+  if (!thread || !thread.isThread()) return true;
+  let ok = true;
+  if (!thread.locked) {
+    await thread.setLocked(true).catch(() => {
+      ok = false;
+    });
+  }
+  if (!thread.archived) {
+    await thread.setArchived(true).catch(() => {
+      ok = false;
+    });
+  }
+  return ok;
 }
 
 export async function moveChannelToBottom(channel: TextChannel): Promise<void> {

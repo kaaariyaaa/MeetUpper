@@ -1,6 +1,12 @@
 import { EmbedBuilder, type Client } from "discord.js";
-import { getMeetupChannel, tryDM } from "./discord.ts";
-import { getMeetup, listCohosts, listParticipants } from "./meetup.ts";
+import { closeRecruitmentThread, getMeetupChannel, tryDM } from "./discord.ts";
+import {
+  getMeetup,
+  listCohosts,
+  listParticipants,
+  listRecruitmentsToClose,
+  markRecruitmentClosed,
+} from "./meetup.ts";
 import {
   REMINDER_RETRY_DELAYS_MS,
   REMINDER_WINDOW_MS,
@@ -249,6 +255,16 @@ async function processDueMeetup(
   await sendReminder(client, meetup, newest, recipients, now);
 }
 
+async function closeStartedRecruitments(client: Client, now: number): Promise<void> {
+  for (const meetup of listRecruitmentsToClose(now)) {
+    const guild = client.guilds.cache.get(meetup.guildId);
+    if (!guild) continue;
+    if (await closeRecruitmentThread(guild, meetup)) {
+      markRecruitmentClosed(meetup.id, now);
+    }
+  }
+}
+
 async function processPendingWarnings(client: Client, now: number): Promise<void> {
   for (const failure of listPendingChannelWarnings(now)) {
     if (failure.dmFailed === 0) {
@@ -345,6 +361,7 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
       await processDueMeetup(client, meetupId, schedules, now);
     }
 
+    await closeStartedRecruitments(client, now);
     await processPendingWarnings(client, now);
   } catch (error) {
     console.error("リマインダー処理に失敗しました", error);

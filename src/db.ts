@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS invite_requests (
 
 DROP TABLE IF EXISTS reminders;
 
+CREATE TABLE IF NOT EXISTS recruitment_closures (
+  meetup_id INTEGER PRIMARY KEY REFERENCES meetups(id) ON DELETE CASCADE,
+  closed_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS reminder_settings (
   meetup_id INTEGER PRIMARY KEY REFERENCES meetups(id) ON DELETE CASCADE,
   enabled INTEGER NOT NULL DEFAULT 1,

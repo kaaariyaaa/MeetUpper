@@ -326,6 +326,37 @@ export function listPendingInviteRequests(meetupId: number): InviteRequest[] {
   return rows.map(toInviteRequest);
 }
 
+/* --- recruitment closure --- */
+
+export function markRecruitmentClosed(meetupId: number, now = Date.now()): void {
+  db.query(
+    "INSERT OR IGNORE INTO recruitment_closures (meetup_id, closed_at) VALUES (?, ?)",
+  ).run(meetupId, now);
+}
+
+export function isRecruitmentClosed(meetupId: number): boolean {
+  return Boolean(
+    db.query("SELECT 1 FROM recruitment_closures WHERE meetup_id = ?").get(meetupId),
+  );
+}
+
+/** Public MeetUps whose recruitment must be closed (started, cancelled or archived) and is still open. */
+export function listRecruitmentsToClose(now = Date.now()): Meetup[] {
+  return (
+    db
+      .query(
+        `SELECT m.* FROM meetups m
+         LEFT JOIN recruitment_closures c ON c.meetup_id = m.id
+         WHERE m.mode = 'PUBLIC'
+           AND m.forum_thread_id IS NOT NULL
+           AND (m.state IN ('CANCELLED', 'ARCHIVED') OR m.start_at <= ?)
+           AND c.meetup_id IS NULL
+         ORDER BY m.start_at ASC`,
+      )
+      .all(now) as Parameters<typeof toMeetup>[0][]
+  ).map(toMeetup);
+}
+
 /* --- lifecycle --- */
 
 export interface TransitionResult {
