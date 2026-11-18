@@ -31,9 +31,11 @@ import {
   replyEphemeral,
   replyError,
   sendToMeetupChannel,
+  sendToMeetupChannelMessage,
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
+import { recordParticipationMessage } from "../core/participation.ts";
 import { button, selectMenu, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
 import type { Meetup } from "../core/types.ts";
@@ -223,13 +225,13 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
     const participant = getParticipant(meetup.id, interaction.user.id);
     const appliedAt = participant?.appliedAt ?? Date.now();
 
-    const sent = await sendToMeetupChannel(guild, meetup, {
+    const message = await sendToMeetupChannelMessage(guild, meetup, {
       content: applicationPanelContent(meetup, interaction.user.id),
       embeds: [applicationEmbed(meetup, interaction.user.id, countApproved(meetup.id), 0, appliedAt)],
       components: applicationComponents(meetup, interaction.user.id),
     });
 
-    if (!sent) {
+    if (!message) {
       // No panel means no way to approve, so do not leave an unreachable application.
       if (previous) setParticipantState(meetup.id, interaction.user.id, previous.state);
       else deleteParticipant(meetup.id, interaction.user.id);
@@ -240,6 +242,7 @@ export async function submitApplication(interaction: RepliableInteraction, meetu
       return;
     }
 
+    recordParticipationMessage(meetup.id, "application", message.channelId, message.id);
     await replyEphemeral(interaction, "参加申請を送りました");
   } catch (error) {
     await replyError(interaction, error);

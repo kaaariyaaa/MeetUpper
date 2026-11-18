@@ -19,6 +19,8 @@ const {
   submitApplication,
 } = await import("../src/features/apply.ts");
 const { applyButtonRow } = await import("../src/core/views.ts");
+const { closeParticipationMessages, listParticipationMessages, recordParticipationMessage } =
+  await import("../src/core/participation.ts");
 const { createMeetup, getParticipant, setParticipantState, updateMeetup } = await import(
   "../src/core/meetup.ts"
 );
@@ -226,6 +228,88 @@ test("direct-join meetups approve the applicant immediately", async () => {
   expect(getParticipant(meetup.id, "u-direct")?.state).toBe("APPROVED");
   expect(JSON.stringify(sent)).toContain("参加しました");
   expect(JSON.stringify(replies)).toContain("参加しました");
+});
+
+test("submitted applications record the panel message", async () => {
+  const meetup = newMeetup({ guildId: "g-apply-record" });
+  updateMeetup(meetup.id, { channelId: "chan-apply-record" });
+
+  const sent: unknown[] = [];
+  const channel = {
+    id: "chan-apply-record",
+    type: ChannelType.GuildText,
+    send: async (payload: unknown) => {
+      sent.push(payload);
+      return { id: "msg-apply", channelId: "chan-apply-record" };
+    },
+  };
+  const guild = {
+    id: "g-apply-record",
+    client: { user: { id: "bot" } },
+    channels: { fetch: async (id: string) => (id === "chan-apply-record" ? channel : null) },
+  };
+  const replies: unknown[] = [];
+  const interaction = {
+    guild,
+    user: { id: "u-apply" },
+    client: {},
+    deferred: false,
+    replied: false,
+    deferReply: async () => {
+      interaction.deferred = true;
+    },
+    reply: async (payload: unknown) => {
+      replies.push(payload);
+    },
+    editReply: async (payload: unknown) => {
+      replies.push(payload);
+    },
+    followUp: async (payload: unknown) => {
+      replies.push(payload);
+    },
+  };
+
+  await submitApplication(interaction as never, meetup.id);
+
+  expect(getParticipant(meetup.id, "u-apply")?.state).toBe("APPLIED");
+  expect(JSON.stringify(sent)).toContain("参加申請が届きました");
+  expect(JSON.stringify(replies)).toContain("参加申請を送りました");
+  expect(
+    listParticipationMessages(meetup.id).map((entry) => [
+      entry.kind,
+      entry.channelId,
+      entry.messageId,
+    ]),
+  ).toEqual([["application", "chan-apply-record", "msg-apply"]]);
+});
+
+test("closeParticipationMessages removes the components from the stored panel", async () => {
+  const meetup = newMeetup({ guildId: "g-apply-close" });
+  recordParticipationMessage(meetup.id, "application", "chan-apply-close", "msg-apply-close");
+
+  const edits: unknown[] = [];
+  const storedMessage = {
+    embeds: [],
+    content: "参加申請が届きました",
+    edit: async (payload: unknown) => {
+      edits.push(payload);
+    },
+  };
+  const client = {
+    channels: {
+      fetch: async (id: string) =>
+        id === "chan-apply-close"
+          ? { isTextBased: () => true, messages: { fetch: async () => storedMessage } }
+          : null,
+    },
+  };
+
+  await closeParticipationMessages(client as never, meetup.id, "募集は終了しました");
+
+  expect(edits).toEqual([
+    { content: "参加申請が届きました\n\n募集は終了しました", components: [] },
+  ]);
+  expect(listParticipationMessages(meetup.id)).toEqual([]);
 });
 
 test("recruitment button label follows the join mode", () => {
