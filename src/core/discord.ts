@@ -14,6 +14,7 @@ import {
   type GuildChannel,
   type GuildMember,
   type InteractionReplyOptions,
+  type Message,
   type MessageCreateOptions,
   type RepliableInteraction,
   type TextChannel,
@@ -611,7 +612,11 @@ export async function archiveChannel(guild: Guild, meetup: Meetup): Promise<void
 }
 
 /** Locks and archives the Public recruitment thread. Returns false only when Discord rejected it. */
-export async function closeRecruitmentThread(guild: Guild, meetup: Meetup): Promise<boolean> {
+export async function closeRecruitmentThread(
+  guild: Guild,
+  meetup: Meetup,
+  notice = "募集は終了しました",
+): Promise<boolean> {
   if (meetup.mode !== "PUBLIC" || !meetup.forumThreadId) return true;
   let thread;
   try {
@@ -623,6 +628,27 @@ export async function closeRecruitmentThread(guild: Guild, meetup: Meetup): Prom
   }
   if (!thread || !thread.isThread()) return true;
   let ok = true;
+  if (typeof thread.fetchStarterMessage === "function") {
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (starter) {
+      try {
+        const embeds = starter.embeds.map((embed) => EmbedBuilder.from(embed));
+        if (embeds[0]) {
+          if (!embeds[0].data.fields?.some((field) => field.name === "募集状況")) {
+            embeds[0].addFields({ name: "募集状況", value: notice });
+          }
+          await starter.edit({ embeds, components: [] });
+        } else {
+          const content = starter.content ? `${starter.content}
+
+${notice}` : notice;
+          await starter.edit({ content, components: [] });
+        }
+      } catch {
+        ok = false;
+      }
+    }
+  }
   if (!thread.locked) {
     await thread.setLocked(true).catch(() => {
       ok = false;
@@ -640,19 +666,29 @@ export async function moveChannelToBottom(channel: TextChannel): Promise<void> {
   await channel.setPosition(9999).catch(() => undefined);
 }
 
+/** Sends a DM and returns the created message, or null when the user cannot receive one. */
+export async function sendDM(
+  client: Client,
+  userId: string,
+  payload: string | MessageCreateOptions,
+): Promise<Message | null> {
+  try {
+    const user: User = await client.users.fetch(userId);
+    return await user.send(
+      typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload),
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Returns false when the user has DMs closed or shares no guild with the bot. */
 export async function tryDM(
   client: Client,
   userId: string,
   payload: string | MessageCreateOptions,
 ): Promise<boolean> {
-  try {
-    const user: User = await client.users.fetch(userId);
-    await user.send(typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await sendDM(client, userId, payload)) !== null;
 }
 
 export async function createInviteThread(
@@ -736,17 +772,26 @@ export async function fetchMember(guild: Guild, userId: string): Promise<GuildMe
   return guild.members.fetch(userId).catch(() => null);
 }
 
+export async function sendToMeetupChannelMessage(
+  guild: Guild,
+  meetup: Meetup,
+  payload: string | MessageCreateOptions,
+): Promise<Message | null> {
+  const channel = await getMeetupChannel(guild, meetup);
+  if (!channel) return null;
+  try {
+    return await channel.send(
+      typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function sendToMeetupChannel(
   guild: Guild,
   meetup: Meetup,
   payload: string | MessageCreateOptions,
 ): Promise<boolean> {
-  const channel = await getMeetupChannel(guild, meetup);
-  if (!channel) return false;
-  try {
-    await channel.send(typeof payload === "string" ? { embeds: [messageEmbed(payload)] } : withEmbed(payload));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await sendToMeetupChannelMessage(guild, meetup, payload)) !== null;
 }

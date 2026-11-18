@@ -88,6 +88,19 @@ CREATE TABLE IF NOT EXISTS invite_requests (
 
 DROP TABLE IF EXISTS reminders;
 
+CREATE TABLE IF NOT EXISTS participation_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meetup_id INTEGER NOT NULL REFERENCES meetups(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (channel_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_participation_messages_meetup
+  ON participation_messages (meetup_id);
+
 CREATE TABLE IF NOT EXISTS recruitment_closures (
   meetup_id INTEGER PRIMARY KEY REFERENCES meetups(id) ON DELETE CASCADE,
   closed_at INTEGER NOT NULL
