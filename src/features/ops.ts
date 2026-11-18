@@ -27,6 +27,7 @@ import {
   tryDM,
 } from "../core/discord.ts";
 import { cancelEvent } from "../core/events.ts";
+import { closeParticipationMessages } from "../core/participation.ts";
 import {
   archiveMeetup,
   canManage,
@@ -650,6 +651,9 @@ button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction
         console.error("アーカイブ後の権限同期に失敗しました", error),
       );
       if (await closeRecruitmentThread(guild, updated)) markRecruitmentClosed(updated.id);
+      await closeParticipationMessages(interaction.client, updated.id, "募集は終了しました").catch(
+        (error) => console.error("募集メッセージの終了処理に失敗しました", error),
+      );
       if (updated.eventId) await cancelEvent(guild, updated);
       return;
     }
@@ -667,6 +671,9 @@ button(/^ops:confirm:(leave|archive|cancel):([A-Za-z0-9]+)$/, async (interaction
       components: [meetupNavRow(updated.id)],
     });
     if (await closeRecruitmentThread(guild, updated)) markRecruitmentClosed(updated.id);
+    await closeParticipationMessages(interaction.client, updated.id, "募集は終了しました").catch(
+      (error) => console.error("募集メッセージの終了処理に失敗しました", error),
+    );
     await cancelEvent(guild, updated);
     const message = `MeetUpが中止されました: ${updated.name}`;
     await notifyChannel(guild, updated, message);

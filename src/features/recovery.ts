@@ -28,6 +28,7 @@ import {
   tryDM,
 } from "../core/discord.ts";
 import { cancelEvent } from "../core/events.ts";
+import { closeParticipationMessages } from "../core/participation.ts";
 import type { Meetup } from "../core/types.ts";
 
 // ponytail: in-memory only, a restart mid-handling could recover twice; acceptable, channels die anyway.
@@ -126,6 +127,9 @@ button(/^recover:cancel:(\d+)$/, async (interaction: ButtonInteraction, args) =>
     await interaction.update({ embeds: [messageEmbed("MeetUpを中止しました")], components: [] });
 
     if (await closeRecruitmentThread(guild, cancelled)) markRecruitmentClosed(cancelled.id);
+    await closeParticipationMessages(interaction.client, cancelled.id, "募集は終了しました").catch(
+      (error) => console.error("募集メッセージの終了処理に失敗しました", error),
+    );
     await cancelEvent(guild, cancelled);
     await sendToMeetupChannel(guild, cancelled, {
       content: `MeetUp「${cancelled.name}」は中止されました。`,

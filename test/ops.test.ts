@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EmbedBuilder } from "discord.js";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-ops-test-${process.pid}-${Date.now()}.db`);
 const { db } = await import("../src/db.ts");
@@ -15,6 +16,9 @@ const {
   setParticipantState,
   updateMeetup,
 } = await import("../src/core/meetup.ts");
+const { listParticipationMessages, recordParticipationMessage } = await import(
+  "../src/core/participation.ts"
+);
 const { formatInZone } = await import("../src/core/time.ts");
 await import("../src/features/ops.ts");
 const { findButton, findModal, getSubcommands } = await import("../src/core/registry.ts");
@@ -269,4 +273,74 @@ test("archiving closes and locks the Public recruitment thread", async () => {
   expect(locked).toEqual([true]);
   expect(archived).toEqual([true]);
   expect(isRecruitmentClosed(meetup.id)).toBe(true);
+});
+
+/** A client whose channel holds one participation message; every edit payload is recorded. */
+function participationClient(edits: Record<string, unknown>[], failEdit = false) {
+  const message = {
+    embeds: [new EmbedBuilder().setTitle("募集")],
+    content: "",
+    edit: async (payload: Record<string, unknown>) => {
+      if (failEdit) throw new Error("edit failed");
+      edits.push(payload);
+    },
+  };
+  const channel = { isTextBased: () => true, messages: { fetch: async () => message } };
+  return {
+    channels: { fetch: async () => channel },
+    users: { fetch: async () => ({ send: async () => undefined }) },
+  };
+}
+
+function closedFields(payload: Record<string, unknown> | undefined): unknown {
+  const embed = (payload?.embeds as { toJSON: () => { fields?: unknown } }[] | undefined)?.[0]?.toJSON();
+  return embed?.fields;
+}
+
+test("cancelling closes stored participation messages", async () => {
+  const meetup = makeMeetup();
+  recordParticipationMessage(meetup.id, "invite", "part-cancel", "msg-cancel");
+
+  const { interaction, calls } = slash(meetup.id);
+  await subcommand("cancel").execute(interaction as never);
+  const confirmId = customIds(calls[0]?.payload).find((id) => id.startsWith("ops:confirm:cancel:"));
+  expect(confirmId).toBeDefined();
+
+  const edits: Record<string, unknown>[] = [];
+  const routed = findButton(confirmId!)!;
+  const click = fakeInteraction({ customId: confirmId, client: participationClient(edits) });
+  await routed.handler(click.interaction as never, routed.args);
+
+  expect(getMeetup(meetup.id)?.state).toBe("CANCELLED");
+  expect(edits).toHaveLength(1);
+  expect(edits[0]?.components).toEqual([]);
+  expect(closedFields(edits[0])).toContainEqual({ name: "募集状況", value: "募集は終了しました" });
+  expect(listParticipationMessages(meetup.id)).toHaveLength(0);
+});
+
+test("archiving closes stored participation messages", async () => {
+  const meetup = makeMeetup();
+  updateMeetup(meetup.id, { forumThreadId: "thread-archive-2" });
+  recordParticipationMessage(meetup.id, "application", "part-archive", "msg-archive");
+
+  const thread = { isThread: () => true, setLocked: async () => undefined, setArchived: async () => undefined };
+  const guild = { id: "g1", channels: { fetch: async () => thread } };
+
+  const { interaction, calls } = slash(meetup.id);
+  (interaction as { guild: unknown }).guild = guild;
+  await subcommand("archive").execute(interaction as never);
+  const confirmId = customIds(calls[0]?.payload).find((id) => id.startsWith("ops:confirm:archive:"));
+  expect(confirmId).toBeDefined();
+
+  const edits: Record<string, unknown>[] = [];
+  const routed = findButton(confirmId!)!;
+  const click = fakeInteraction({ customId: confirmId, client: participationClient(edits) });
+  (click.interaction as { guild: unknown }).guild = guild;
+  await routed.handler(click.interaction as never, routed.args);
+
+  expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");
+  expect(edits).toHaveLength(1);
+  expect(edits[0]?.components).toEqual([]);
+  expect(closedFields(edits[0])).toContainEqual({ name: "募集状況", value: "募集は終了しました" });
+  expect(listParticipationMessages(meetup.id)).toHaveLength(0);
 });

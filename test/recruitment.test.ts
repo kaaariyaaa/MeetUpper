@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Client } from "discord.js";
+import { EmbedBuilder, type Client } from "discord.js";
 
 process.env.DB_PATH = join(tmpdir(), `meetupper-recruitment-${process.pid}-${Date.now()}.db`);
 const { db } = await import("../src/db.ts");
@@ -14,8 +14,11 @@ const {
   updateMeetup,
 } = await import("../src/core/meetup.ts");
 const { tickReminders } = await import("../src/core/reminderEngine.ts");
+const { listParticipationMessages, recordParticipationMessage } = await import(
+  "../src/core/participation.ts"
+);
 
-function makeMeetup(options: { startAt: number; threadId?: string }) {
+function makeMeetup(options: { startAt: number; threadId?: string; mode?: "PUBLIC" | "PRIVATE" }) {
   const meetup = createMeetup({
     guildId: "g-recruit",
     hostId: "host",
@@ -25,7 +28,7 @@ function makeMeetup(options: { startAt: number; threadId?: string }) {
     startAt: options.startAt,
     meetingAt: null,
     meetingPlace: null,
-    mode: "PUBLIC",
+    mode: options.mode ?? "PUBLIC",
     approvalMode: "HOST",
     requiredVotes: 1,
     eventEnabled: false,
@@ -34,7 +37,11 @@ function makeMeetup(options: { startAt: number; threadId?: string }) {
   return meetup;
 }
 
-function fakeClient(thread: Record<string, unknown> | null, counter: { count: number }): Client {
+function fakeClient(
+  thread: Record<string, unknown> | null,
+  counter: { count: number },
+  participationChannels: Record<string, unknown> = {},
+): Client {
   const channelThread = thread
     ? {
         ...thread,
@@ -55,8 +62,25 @@ function fakeClient(thread: Record<string, unknown> | null, counter: { count: nu
   };
   return {
     isReady: () => true,
+    channels: { fetch: async (id: string) => participationChannels[id] ?? null },
     guilds: { cache: new Map([["g-recruit", guild]]) },
   } as unknown as Client;
+}
+
+/** A text channel holding one participation message; `edits` records every edit attempt. */
+function participationChannel(edit: (payload: ParticipationPayload) => Promise<void>) {
+  const message = {
+    embeds: [new EmbedBuilder().setTitle("募集")],
+    content: "",
+    edit,
+  };
+  return { isTextBased: () => true, messages: { fetch: async () => message } };
+}
+
+interface ParticipationPayload {
+  content?: string | null;
+  components?: unknown[];
+  embeds?: { toJSON: () => { fields?: { name: string; value: string }[] } }[];
 }
 
 test("started Public recruitment is closed and locked exactly once", async () => {
@@ -91,3 +115,50 @@ test("cancelled Public recruitment is queued for closure even before the start t
   const queued = listRecruitmentsToClose(Date.now()).map((item) => item.id);
   expect(queued).toContain(meetup.id);
 });
+
+test("started Public and Private participation messages lose their components and get 募集状況", async () => {
+  const publicMeetup = makeMeetup({ startAt: Date.now() - 60_000 });
+  const privateMeetup = makeMeetup({ startAt: Date.now() - 60_000, mode: "PRIVATE" });
+  recordParticipationMessage(publicMeetup.id, "application", "part-public", "msg-public");
+  recordParticipationMessage(privateMeetup.id, "invite", "part-private", "msg-private");
+
+  const publicEdits: ParticipationPayload[] = [];
+  const privateEdits: ParticipationPayload[] = [];
+  const client = fakeClient(null, { count: 0 }, {
+    "part-public": participationChannel(async (payload) => {
+      publicEdits.push(payload);
+    }),
+    "part-private": participationChannel(async (payload) => {
+      privateEdits.push(payload);
+    }),
+  });
+
+  await tickReminders(client, Date.now());
+
+  for (const [edits, meetupId] of [
+    [publicEdits, publicMeetup.id],
+    [privateEdits, privateMeetup.id],
+  ] as const) {
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.components).toEqual([]);
+    const fields = edits[0]?.embeds?.[0]?.toJSON().fields ?? [];
+    expect(fields).toContainEqual({ name: "募集状況", value: "募集は終了しました" });
+    expect(listParticipationMessages(meetupId)).toHaveLength(0);
+  }
+});
+
+test("a participation message whose edit fails keeps its row for retry", async () => {
+  const meetup = makeMeetup({ startAt: Date.now() - 60_000 });
+  recordParticipationMessage(meetup.id, "application", "part-fail", "msg-fail");
+
+  const client = fakeClient(null, { count: 0 }, {
+    "part-fail": participationChannel(async () => {
+      throw new Error("edit failed");
+    }),
+  });
+
+  await tickReminders(client, Date.now());
+
+  expect(listParticipationMessages(meetup.id).map((entry) => entry.messageId)).toEqual(["msg-fail"]);
+});
+
