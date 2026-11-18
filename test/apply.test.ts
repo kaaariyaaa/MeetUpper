@@ -8,10 +8,16 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 
-const { findButton, getSubcommands } = await import("../src/core/registry.ts");
-const { applicationComponents, applicationDenial, applicationEmbed, submitApplication } = await import(
-  "../src/features/apply.ts"
-);
+const { findButton, findSelectMenu, getSubcommands } = await import("../src/core/registry.ts");
+const {
+  applicationComponents,
+  applicationDenial,
+  applicationEmbed,
+  applyConfirmComponents,
+  applyConfirmEmbed,
+  joinableMeetups,
+  submitApplication,
+} = await import("../src/features/apply.ts");
 const { applyButtonRow } = await import("../src/core/views.ts");
 const { createMeetup, getParticipant, setParticipantState, updateMeetup } = await import(
   "../src/core/meetup.ts"
@@ -44,6 +50,60 @@ test("apply subcommand and button ids are registered in the apply namespace", ()
   expect(findButton("apply:reject:42:7")?.args).toEqual(["42", "7"]);
   expect(findButton("apply:vote:42:7")?.args).toEqual(["42", "7"]);
   expect(findButton("apply:unknown:42:7")).toBeUndefined();
+
+  // The slash entry point opens a browse-namespace picker/confirmation UI.
+  expect(findSelectMenu("browse:apply-pick:abc123")?.args).toEqual(["abc123"]);
+  expect(findButton("browse:apply-list:abc123")?.args).toEqual(["abc123"]);
+  expect(findButton("browse:apply-prev:abc123")?.args).toEqual(["abc123"]);
+  expect(findButton("browse:apply-next:abc123")?.args).toEqual(["abc123"]);
+});
+
+test("apply confirmation panel keeps the meeting place private", () => {
+  const meetup = newMeetup({ meetingPlace: "秘密の場所" });
+  const embed = applyConfirmEmbed(meetup).toJSON();
+
+  expect(embed.title).toBe(`参加確認: ${meetup.name}`);
+  expect(embed.description).toContain("このMeetUpへ参加します。");
+  expect(embed.description).not.toContain("秘密の場所");
+  expect(embed.footer?.text).toBe(`MeetUp ID: ${meetup.id}`);
+
+  const ids = (rows: { toJSON(): { components: unknown[] } }[], key = "custom_id") =>
+    rows.flatMap((row) =>
+      row
+        .toJSON()
+        .components.map((component) =>
+          key in (component as Record<string, unknown>)
+            ? String((component as { custom_id: string }).custom_id)
+            : "",
+        ),
+    );
+
+  const idsWithoutBack = ids(applyConfirmComponents(meetup));
+  expect(idsWithoutBack).toContain(`apply:start:${meetup.id}`);
+  expect(idsWithoutBack).toContain(`browse:show:${meetup.id}`);
+  expect(idsWithoutBack).not.toContain("browse:apply-list:sess");
+
+  const idsWithBack = ids(applyConfirmComponents(meetup, "sess"));
+  expect(idsWithBack).toContain("browse:apply-list:sess");
+});
+
+test("joinable list holds public meetups and invited private meetups only", () => {
+  const guildId = "g-joinable";
+  const publicMeetup = newMeetup({ guildId });
+  const privateMeetup = newMeetup({ guildId, mode: "PRIVATE" });
+  const invited = newMeetup({ guildId, mode: "PRIVATE" });
+  setParticipantState(invited.id, "u-join", "DECLINED", { invitedBy: "host" });
+  const cancelled = newMeetup({ guildId });
+  updateMeetup(cancelled.id, { state: "ARCHIVED" });
+
+  const ids = joinableMeetups(guildId, "u-join")
+    .map((meetup) => meetup.id)
+    .sort((a, b) => a - b);
+  expect(ids).toEqual([publicMeetup.id, invited.id].sort((a, b) => a - b));
+
+  setParticipantState(publicMeetup.id, "u-join", "APPROVED", { approvedBy: "host" });
+  expect(joinableMeetups(guildId, "u-join").map((meetup) => meetup.id)).not.toContain(publicMeetup.id);
+  expect(joinableMeetups(guildId, "u-join").map((meetup) => meetup.id)).not.toContain(privateMeetup.id);
 });
 
 test("public applications follow participant state rules", () => {
