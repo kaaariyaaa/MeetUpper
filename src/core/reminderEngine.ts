@@ -1,5 +1,6 @@
 import { EmbedBuilder, type Client } from "discord.js";
 import { closeRecruitmentThread, getMeetupChannel, tryDM } from "./discord.ts";
+import { sweepParticipationMessages } from "./participation.ts";
 import {
   getMeetup,
   listCohosts,
@@ -362,6 +363,7 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
     }
 
     await closeStartedRecruitments(client, now);
+    await sweepParticipationMessages(client, now);
     await processPendingWarnings(client, now);
   } catch (error) {
     console.error("リマインダー処理に失敗しました", error);
