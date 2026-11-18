@@ -6,6 +6,7 @@ import {
   SlashCommandSubcommandBuilder,
   type ButtonInteraction,
   type Guild,
+  type MessageActionRowComponentBuilder,
   type RepliableInteraction,
 } from "discord.js";
 import {
@@ -18,6 +19,7 @@ import {
   getParticipant,
   hasVoted,
   listCohosts,
+  listMeetups,
   listParticipants,
   rejectParticipant,
   setParticipantState,
@@ -32,10 +34,18 @@ import {
   syncMeetupAccess,
   tryDM,
 } from "../core/discord.ts";
-import { button, subcommand } from "../core/registry.ts";
+import { button, selectMenu, subcommand } from "../core/registry.ts";
 import { discordTimestamp } from "../core/time.ts";
 import type { Meetup } from "../core/types.ts";
-import { capacityLabel } from "../core/views.ts";
+import {
+  createUiSession,
+  getUiSession,
+  meetupSelectRow,
+  pageRow,
+  selectedNumber,
+  type UiSession,
+} from "../core/ui.ts";
+import { applyButtonRow, capacityLabel, meetupEmbed } from "../core/views.ts";
 
 const NOT_RECRUITING = "このMeetUpは現在募集していません";
 
@@ -305,6 +315,96 @@ async function confirmApproval(
   await announceJoin(guild, meetup, applicantId, warning);
 }
 
+/* --- apply UI --- */
+
+const APPLY_PAGE_SIZE = 25;
+const SESSION_EXPIRED = "画面の有効期限が切れました。コマンドを開き直してください。";
+
+interface ApplyPickerState {
+  page: number;
+}
+
+type ApplySession = UiSession<ApplyPickerState>;
+
+/** MeetUps this user may apply to: Public or an invited Private one. */
+export function joinableMeetups(guildId: string, userId: string): Meetup[] {
+  return listMeetups(guildId).filter(
+    (meetup) => meetup.state === "ACTIVE" && applicationDenial(meetup, userId) === null,
+  );
+}
+
+export function applyConfirmEmbed(meetup: Meetup): EmbedBuilder {
+  const embed = meetupEmbed(meetup);
+  return embed
+    .setTitle(`参加確認: ${meetup.name}`)
+    .setDescription(["このMeetUpへ参加します。", embed.data.description ?? ""].join("\n\n").slice(0, 4000))
+    .setFooter({ text: `MeetUp ID: ${meetup.id}` });
+}
+
+export function applyConfirmComponents(
+  meetup: Meetup,
+  backSessionId?: string,
+): ActionRowBuilder<ButtonBuilder>[] {
+  const rows = [applyButtonRow(meetup)];
+  const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`browse:show:${meetup.id}`)
+      .setLabel("詳細")
+      .setStyle(ButtonStyle.Secondary),
+  );
+  if (backSessionId) {
+    controls.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`browse:apply-list:${backSessionId}`)
+        .setLabel("一覧に戻る")
+        .setStyle(ButtonStyle.Secondary),
+    );
+  }
+  rows.push(controls);
+  return rows;
+}
+
+function applyPickerPayload(session: ApplySession, userId: string): {
+  embeds: EmbedBuilder[];
+  components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+} {
+  const meetups = joinableMeetups(session.guildId, userId);
+  const pages = Math.max(1, Math.ceil(meetups.length / APPLY_PAGE_SIZE));
+  const page = Math.min(Math.max(session.data.page, 0), pages - 1);
+  session.data.page = page;
+  const items = meetups.slice(page * APPLY_PAGE_SIZE, (page + 1) * APPLY_PAGE_SIZE);
+
+  const embed = new EmbedBuilder()
+    .setTitle("参加するMeetUpを選択")
+    .setColor(0x5865f2)
+    .setDescription(
+      [
+        `参加できます: ${meetups.length}件`,
+        items.length === 0 ? "参加できるMeetUpはありません。" : "MeetUpを選ぶと参加確認に進みます。",
+        pages > 1 ? `ページ ${page + 1}/${pages}` : null,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n"),
+    );
+
+  const components: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+  if (items.length > 0) {
+    components.push(
+      meetupSelectRow(
+        `browse:apply-pick:${session.id}`,
+        items.map((meetup) => ({ meetup })),
+      ),
+    );
+  }
+  if (pages > 1) {
+    components.push(
+      pageRow(`browse:apply-prev:${session.id}`, `browse:apply-next:${session.id}`, page, pages),
+    );
+  }
+  return { embeds: [embed], components };
+}
+
+/** Slash entry point: confirmation panel for a known MeetUp, joinable picker otherwise. */
 subcommand(
   new SlashCommandSubcommandBuilder()
     .setName("apply")
@@ -313,22 +413,119 @@ subcommand(
       option.setName("meetup").setDescription("MeetUp ID（募集スレッド内なら省略可）").setMinValue(1),
     ),
   async (interaction) => {
-    const id = interaction.options.getInteger("meetup");
-    if (id !== null) {
-      await submitApplication(interaction, id);
-      return;
+    try {
+      const guild = interaction.guild;
+      if (!guild) {
+        await replyEphemeral(interaction, "サーバー内でのみ使用できます");
+        return;
+      }
+      const id = interaction.options.getInteger("meetup");
+      const meetup = id === null ? meetupFromInteraction(interaction) : getMeetup(id);
+      if (id !== null && (!meetup || meetup.guildId !== guild.id)) {
+        await replyEphemeral(interaction, "MeetUpが見つかりません。");
+        return;
+      }
+
+      await deferEphemeral(interaction);
+      if (!meetup || meetup.guildId !== guild.id) {
+        const session = createUiSession<ApplyPickerState>({
+          ownerId: interaction.user.id,
+          guildId: guild.id,
+          data: { page: 0 },
+        });
+        await replyEphemeral(interaction, applyPickerPayload(session, interaction.user.id));
+        return;
+      }
+      if (meetup.state !== "ACTIVE") {
+        await replyEphemeral(interaction, NOT_RECRUITING);
+        return;
+      }
+      const denial = applicationDenial(meetup, interaction.user.id);
+      if (denial) {
+        await replyEphemeral(interaction, denial);
+        return;
+      }
+      await replyEphemeral(interaction, {
+        embeds: [applyConfirmEmbed(meetup)],
+        components: applyConfirmComponents(meetup),
+      });
+    } catch (error) {
+      await replyError(interaction, error);
     }
-    const meetup = meetupFromInteraction(interaction);
-    if (!meetup) {
-      await replyEphemeral(
-        interaction,
-        "MeetUp IDを指定するか、募集スレッドまたは専用チャンネル内で実行してください。",
-      );
-      return;
-    }
-    await submitApplication(interaction, meetup.id);
   },
 );
+
+selectMenu(/^browse:apply-pick:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<ApplyPickerState>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, SESSION_EXPIRED);
+      return;
+    }
+    const meetupId = selectedNumber(interaction);
+    const meetup = meetupId === null ? null : getMeetup(meetupId);
+    if (!meetup || meetup.guildId !== session.guildId) {
+      await replyEphemeral(interaction, "MeetUpが見つかりません。");
+      return;
+    }
+    if (meetup.state !== "ACTIVE") {
+      await replyEphemeral(interaction, NOT_RECRUITING);
+      return;
+    }
+    const denial = applicationDenial(meetup, interaction.user.id);
+    if (denial) {
+      await replyEphemeral(interaction, denial);
+      return;
+    }
+    await interaction.update({
+      embeds: [applyConfirmEmbed(meetup)],
+      components: applyConfirmComponents(meetup, session.id),
+    });
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+button(/^browse:apply-list:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<ApplyPickerState>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, SESSION_EXPIRED);
+      return;
+    }
+    await interaction.update(applyPickerPayload(session, interaction.user.id));
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+button(/^browse:apply-prev:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<ApplyPickerState>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, SESSION_EXPIRED);
+      return;
+    }
+    session.data.page = Math.max(0, session.data.page - 1);
+    await interaction.update(applyPickerPayload(session, interaction.user.id));
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
+
+button(/^browse:apply-next:([A-Za-z0-9]+)$/, async (interaction, args) => {
+  try {
+    const session = getUiSession<ApplyPickerState>(interaction, args[0] ?? "");
+    if (!session) {
+      await replyEphemeral(interaction, SESSION_EXPIRED);
+      return;
+    }
+    session.data.page += 1;
+    await interaction.update(applyPickerPayload(session, interaction.user.id));
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});
 
 button(/^apply:start:(\d+)$/, async (interaction, args) => {
   try {
