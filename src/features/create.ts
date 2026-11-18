@@ -1,8 +1,17 @@
 import {
-  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  LabelBuilder,
+  ModalBuilder,
   SlashCommandSubcommandBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type ChatInputCommandInteraction,
   type Guild,
+  type ModalSubmitInteraction,
   type TextChannel,
 } from "discord.js";
 import { config } from "../config.ts";
@@ -10,40 +19,204 @@ import {
   createMeetupChannel,
   deferEphemeral,
   ensureLayout,
-  fetchMember,
   isLayoutInitialized,
   replyEphemeral,
   replyError,
-  resolveTargetMeetup,
   setupRequiredMessage,
   syncMeetupAccess,
 } from "../core/discord.ts";
-import { syncEventCreation } from "../core/events.ts";
 import {
-  addCohost,
-  canManage,
-  countApproved,
   createMeetup,
   deleteMeetup,
   getMeetup,
-  getParticipant,
-  listMeetups,
   updateMeetup,
-  validateMeetingTime,
+  type CreateMeetupInput,
 } from "../core/meetup.ts";
-import { subcommand } from "../core/registry.ts";
-import { discordTimestamp, parseDateTime } from "../core/time.ts";
+import { modal, subcommand } from "../core/registry.ts";
+import { parseDateTime } from "../core/time.ts";
 import type { ApprovalMode, MeetupMode } from "../core/types.ts";
+import { createUiSession, dropUiSession, getUiSession } from "../core/ui.ts";
 import { applyButtonRow, dateTimeHint, meetupEmbed, publicEmbed } from "../core/views.ts";
 
-/** "カンマ区切りのメンションまたはID" から数字IDだけを取り出す。 */
-export function extractCohostIds(input: string): string[] {
-  const ids = new Set<string>();
-  for (const match of input.matchAll(/<@!?(\d+)>|(\d+)/g)) {
-    const id = match[1] ?? match[2];
-    if (id) ids.add(id);
+const MODE_ID = "create:mode";
+const APPROVAL_ID = "create:approval";
+const NAME_ID = "create:name";
+const START_ID = "create:start";
+
+const MODE_OPTIONS = [
+  {
+    label: "Public（公開）",
+    value: "PUBLIC",
+    description: "誰でも募集を閲覧・参加申請できます",
+  },
+  {
+    label: "Private（招待制）",
+    value: "PRIVATE",
+    description: "招待された人だけが参加できます",
+  },
+] as const;
+
+const APPROVAL_OPTIONS = [
+  { label: "直参加", value: "DIRECT", description: "参加申請するとすぐに参加確定します" },
+  { label: "主催者承認", value: "HOST", description: "主催者・共同主催者が承認します" },
+  { label: "参加者投票", value: "VOTE", description: "参加確定者の賛成票で承認します" },
+] as const;
+
+export interface CreateFormValues {
+  mode: string | null;
+  approval: string | null;
+  name: string;
+  start: string;
+}
+
+export interface CreateDraft {
+  mode: MeetupMode;
+  approvalMode: ApprovalMode;
+  name: string;
+  startAt: number;
+}
+
+/** One modal for every create setting; Discord requires the four labels to be static. */
+export function createModal(sessionId: string): ModalBuilder {
+  const mode = new StringSelectMenuBuilder()
+    .setCustomId(MODE_ID)
+    .setPlaceholder("公開モードを選択")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      MODE_OPTIONS.map((option) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(option.label)
+          .setValue(option.value)
+          .setDescription(option.description),
+      ),
+    );
+  const approval = new StringSelectMenuBuilder()
+    .setCustomId(APPROVAL_ID)
+    .setPlaceholder("参加方法を選択")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      APPROVAL_OPTIONS.map((option) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(option.label)
+          .setValue(option.value)
+          .setDescription(option.description),
+      ),
+    );
+  const name = new TextInputBuilder()
+    .setCustomId(NAME_ID)
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(100)
+    .setRequired(true)
+    .setPlaceholder("例: 東京MeetUp");
+  const start = new TextInputBuilder()
+    .setCustomId(START_ID)
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(32)
+    .setRequired(true)
+    .setPlaceholder("例: 2026-12-01 19:00");
+
+  return new ModalBuilder()
+    .setCustomId(`create:submit:${sessionId}`)
+    .setTitle("MeetUpを作成")
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel("公開モード")
+        .setDescription("Privateは招待制で、参加方法は主催者承認に固定されます。")
+        .setStringSelectMenuComponent(mode),
+      new LabelBuilder()
+        .setLabel("参加方法")
+        .setDescription("Privateを選んだ場合は主催者承認のみ有効です。")
+        .setStringSelectMenuComponent(approval),
+      new LabelBuilder().setLabel("MeetUp名").setTextInputComponent(name),
+      new LabelBuilder()
+        .setLabel("開催日時")
+        .setDescription(`${config.timeZone} の YYYY-MM-DD HH:mm 形式`)
+        .setTextInputComponent(start),
+    );
+}
+
+function selectedMode(value: string | null): MeetupMode {
+  if (value === "PUBLIC" || value === "PRIVATE") return value;
+  throw new Error("公開モードを選択してください。");
+}
+
+function selectedApproval(value: string | null): ApprovalMode {
+  if (value === "DIRECT" || value === "HOST" || value === "VOTE") return value;
+  throw new Error("参加方法を選択してください。");
+}
+
+/** Validates the modal values: Private stays on host approval and the date must be in the future. */
+export function parseCreateForm(values: CreateFormValues, now = Date.now()): CreateDraft {
+  const mode = selectedMode(values.mode);
+  const approvalMode = selectedApproval(values.approval);
+  if (mode === "PRIVATE" && approvalMode !== "HOST") {
+    throw new Error("PrivateのMeetUpは主催者承認に固定です。");
   }
-  return [...ids];
+
+  const name = values.name.trim();
+  if (!name) throw new Error("MeetUp名を入力してください。");
+  if (name.length > 100) throw new Error("MeetUp名は100文字以内で入力してください。");
+
+  const startAt = parseDateTime(values.start, config.timeZone);
+  if (startAt === null) {
+    throw new Error(`開催日時を解析できませんでした。\n${dateTimeHint()}`);
+  }
+  if (startAt <= now) {
+    throw new Error("開催日時は未来の日時を指定してください。");
+  }
+
+  return { mode, approvalMode, name, startAt };
+}
+
+/** Fixed create-time values from the UI spec: no capacity/description/meeting info, event off, reminders on. */
+export function createInputFromDraft(
+  guildId: string,
+  hostId: string,
+  draft: CreateDraft,
+): CreateMeetupInput {
+  return {
+    guildId,
+    hostId,
+    name: draft.name,
+    description: "",
+    capacity: 0,
+    startAt: draft.startAt,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: draft.mode,
+    approvalMode: draft.approvalMode,
+    requiredVotes: 1,
+    eventEnabled: false,
+    reminderEnabled: true,
+  };
+}
+
+/** Success panel buttons: the cross-feature IDs are fixed by docs/UI_SPEC.md. */
+export function createResultRow(meetupId: number): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`browse:show:${meetupId}`)
+      .setLabel("MeetUpを開く")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`edit:open:${meetupId}`)
+      .setLabel("編集")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`reminder:open:${meetupId}`)
+      .setLabel("リマインダー")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function selectValue(interaction: ModalSubmitInteraction, customId: string): string | null {
+  try {
+    return interaction.fields.getStringSelectValues(customId)[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function requireGuild(interaction: ChatInputCommandInteraction): Promise<Guild | null> {
@@ -54,268 +227,106 @@ async function requireGuild(interaction: ChatInputCommandInteraction): Promise<G
   return interaction.guild;
 }
 
-function parseOptionalDateTime(input: string | null): number | null | undefined {
-  if (input === null || input.trim() === "") return null;
-  const parsed = parseDateTime(input, config.timeZone);
-  return parsed ?? undefined;
-}
-
 subcommand(
-  new SlashCommandSubcommandBuilder()
-    .setName("create")
-    .setDescription("MeetUpを作成します")
-    // Discord requires every required option to precede all optional options.
-    .addStringOption((option) =>
-      option.setName("name").setDescription("MeetUp名").setMaxLength(100).setRequired(true),
-    )
-    .addStringOption((option) =>
-      option
-        .setName("start")
-        .setDescription("開催日時 (例: 2026-12-01 19:00, Asia/Tokyo)")
-        .setRequired(true),
-    )
-    .addStringOption((option) =>
-      option
-        .setName("mode")
-        .setDescription("公開モード")
-        .setRequired(true)
-        .addChoices({ name: "公開", value: "PUBLIC" }, { name: "招待制", value: "PRIVATE" }),
-    )
-    .addIntegerOption((option) =>
-      option.setName("capacity").setDescription("定員（省略すると定員なし）").setMinValue(1).setMaxValue(1000),
-    )
-    .addStringOption((option) => option.setName("description").setDescription("説明"))
-    .addStringOption((option) => option.setName("meeting-time").setDescription("集合時間"))
-    .addStringOption((option) => option.setName("meeting-place").setDescription("集合場所"))
-    .addStringOption((option) =>
-      option
-        .setName("approval")
-        .setDescription("参加方法（省略時は直参加）")
-        .addChoices(
-          { name: "直参加", value: "DIRECT" },
-          { name: "主催者承認", value: "HOST" },
-          { name: "参加者投票", value: "VOTE" },
-        ),
-    )
-    .addIntegerOption((option) =>
-      option
-        .setName("required-votes")
-        .setDescription("参加者投票の必要票数")
-        .setMinValue(1)
-        .setMaxValue(100),
-    )
-    .addStringOption((option) =>
-      option.setName("cohosts").setDescription("共同主催者のメンションまたはIDをカンマ区切り"),
-    )
-    .addBooleanOption((option) =>
-      option
-        .setName("event")
-        .setDescription("Discordスケジュールイベントを作成する (Publicのみ)"),
-    )
-    .addBooleanOption((option) =>
-      option.setName("reminder").setDescription("自動リマインダーを有効にする（既定: ON）"),
-    ),
+  new SlashCommandSubcommandBuilder().setName("create").setDescription("MeetUpを作成します"),
   async (interaction) => {
     try {
       const guild = await requireGuild(interaction);
       if (!guild) return;
-      await deferEphemeral(interaction);
       if (!(await isLayoutInitialized(guild))) {
         await replyEphemeral(interaction, setupRequiredMessage(guild));
         return;
       }
-
-      const startAt = parseDateTime(interaction.options.getString("start", true), config.timeZone);
-      if (startAt === null) {
-        await replyEphemeral(interaction, `開催日時を解析できませんでした。\n${dateTimeHint()}`);
-        return;
-      }
-      if (startAt <= Date.now()) {
-        await replyEphemeral(interaction, "開催日時は未来の日時を指定してください。");
-        return;
-      }
-
-      const meetingAt = parseOptionalDateTime(interaction.options.getString("meeting-time"));
-      if (meetingAt === undefined) {
-        await replyEphemeral(interaction, `集合時間を解析できませんでした。\n${dateTimeHint()}`);
-        return;
-      }
-      if (meetingAt !== null) {
-        try {
-          validateMeetingTime(startAt, meetingAt);
-        } catch (error) {
-          await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
-          return;
-        }
-      }
-
-      const mode = interaction.options.getString("mode", true) as MeetupMode;
-      const approvalInput = interaction.options.getString("approval") as ApprovalMode | null;
-      if (mode === "PRIVATE" && approvalInput !== null && approvalInput !== "HOST") {
-        await replyEphemeral(interaction, "招待制のMeetUpは主催者承認に固定です。");
-        return;
-      }
-      // Direct join is the default for Public recruitment.
-      const approvalMode: ApprovalMode = mode === "PRIVATE" ? "HOST" : (approvalInput ?? "DIRECT");
-      const requiredVotesInput = interaction.options.getInteger("required-votes");
-      if (approvalMode === "VOTE" && requiredVotesInput === null) {
-        await replyEphemeral(
-          interaction,
-          "参加者投票を選ぶ場合は必要票数 (required-votes) も指定してください。",
-        );
-        return;
-      }
-      const requiredVotes = requiredVotesInput ?? 1;
-
-      const eventRequested = interaction.options.getBoolean("event") ?? false;
-      const eventEnabled = mode === "PUBLIC" && eventRequested;
-      const reminderEnabled = interaction.options.getBoolean("reminder") ?? true;
-      const meetup = createMeetup({
+      const session = createUiSession<null>({
+        ownerId: interaction.user.id,
         guildId: guild.id,
-        hostId: interaction.user.id,
-        name: interaction.options.getString("name", true),
-        description: interaction.options.getString("description") ?? "",
-        capacity: interaction.options.getInteger("capacity") ?? 0,
-        startAt,
-        meetingAt,
-        meetingPlace: interaction.options.getString("meeting-place"),
-        mode,
-        approvalMode,
-        requiredVotes,
-        eventEnabled,
-        reminderEnabled,
+        data: null,
       });
+      await interaction.showModal(createModal(session.id));
+    } catch (error) {
+      await replyError(interaction, error);
+    }
+  },
+);
 
-      const cohostInput = interaction.options.getString("cohosts");
-      if (cohostInput) {
-        const botId = guild.client.user?.id;
-        for (const userId of extractCohostIds(cohostInput)) {
-          if (userId === meetup.hostId || userId === botId) continue;
-          if (!(await fetchMember(guild, userId))) continue;
-          addCohost(meetup.id, userId);
-        }
-      }
+modal(/^create:submit:([a-z0-9]+)$/, async (interaction, args) => {
+  const sessionId = args[0];
+  if (!sessionId) {
+    await replyEphemeral(interaction, "この操作は現在利用できません。最初からやり直してください。");
+    return;
+  }
+  try {
+    const session = getUiSession(interaction, sessionId);
+    if (!interaction.guild || !session) {
+      await replyEphemeral(interaction, "この操作は現在利用できません。最初からやり直してください。");
+      return;
+    }
+    const guild = interaction.guild;
+    // Consume the session first so a duplicate submit cannot create a second MeetUp.
+    dropUiSession(sessionId);
+    await deferEphemeral(interaction);
 
-      let channel: TextChannel;
-      try {
-        channel = await createMeetupChannel(guild, meetup);
-      } catch (error) {
-        console.error("MeetUp専用チャンネルの作成に失敗しました", error);
-        deleteMeetup(meetup.id);
-        await replyEphemeral(
-          interaction,
-          "専用チャンネルを作成できなかったため、MeetUpの作成を取り消しました。" +
-            "チャンネル数やBotの権限を確認してください。",
-        );
-        return;
-      }
-
-      const warnings: string[] = [];
-      // Cohosts named at creation need their overwrites before any other action syncs them.
-      await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) => {
-        console.error("共同主催者の権限設定に失敗しました", error);
-        warnings.push("共同主催者の権限設定に失敗しました。Botの権限を確認してください。");
+    let draft: CreateDraft;
+    try {
+      draft = parseCreateForm({
+        mode: selectValue(interaction, MODE_ID),
+        approval: selectValue(interaction, APPROVAL_ID),
+        name: interaction.fields.getTextInputValue(NAME_ID),
+        start: interaction.fields.getTextInputValue(START_ID),
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await replyEphemeral(interaction, `${message}\nもう一度 \`/meetupper create\` からやり直してください。`);
+      return;
+    }
 
-      if (mode === "PUBLIC") {
-        try {
-          const layout = await ensureLayout(guild);
-          const thread = await layout.forum.threads.create({
-            name: meetup.name.slice(0, 100),
-            message: { embeds: [publicEmbed(meetup)], components: [applyButtonRow(meetup)] },
-          });
-          updateMeetup(meetup.id, { forumThreadId: thread.id });
-        } catch (error) {
-          console.error("募集フォーラムへの投稿に失敗しました", error);
-          warnings.push("募集フォーラムへの投稿に失敗しました。");
-        }
-      }
+    const meetup = createMeetup(createInputFromDraft(guild.id, interaction.user.id, draft));
 
-      if (eventEnabled) {
-        const event = await syncEventCreation(guild, meetup);
-        if (!event) {
-          warnings.push(
-            "Discordスケジュールイベントを作成できませんでした。Botに「イベントを作成」権限があるか確認してください。",
-          );
-        }
-      }
-
+    let channel: TextChannel;
+    try {
+      channel = await createMeetupChannel(guild, meetup);
+    } catch (error) {
+      console.error("MeetUp専用チャンネルの作成に失敗しました", error);
+      deleteMeetup(meetup.id);
       await replyEphemeral(
         interaction,
-        [
-          "MeetUpを作成しました。",
-          `専用チャンネル: <#${channel.id}>`,
-          `MeetUp ID: ${meetup.id}`,
-          ...warnings,
-        ].join("\n"),
+        "専用チャンネルを作成できなかったため、MeetUpの作成を取り消しました。" +
+          "チャンネル数やBotの権限を確認してください。",
       );
-    } catch (error) {
-      await replyError(interaction, error);
+      return;
     }
-  },
-);
 
-subcommand(
-  new SlashCommandSubcommandBuilder()
-    .setName("list")
-    .setDescription("ACTIVEなMeetUpの一覧を表示します"),
-  async (interaction) => {
-    try {
-      const guild = await requireGuild(interaction);
-      if (!guild) return;
+    const warnings: string[] = [];
+    // No cohosts yet, but syncing now keeps the channel overwrites canonical.
+    await syncMeetupAccess(guild, getMeetup(meetup.id)!).catch((error) => {
+      console.error("専用チャンネルの権限設定に失敗しました", error);
+      warnings.push("専用チャンネルの権限設定に失敗しました。Botの権限を確認してください。");
+    });
 
-      const userId = interaction.user.id;
-      const meetups = listMeetups(guild.id).filter((meetup) => {
-        if (meetup.mode === "PUBLIC") return true;
-        if (canManage(meetup, userId)) return true;
-        const state = getParticipant(meetup.id, userId)?.state;
-        return state !== undefined && state !== "REJECTED";
-      });
-      if (meetups.length === 0) {
-        await replyEphemeral(interaction, "ACTIVEなMeetUpはありません");
-        return;
+    if (draft.mode === "PUBLIC") {
+      try {
+        const layout = await ensureLayout(guild);
+        const thread = await layout.forum.threads.create({
+          name: meetup.name.slice(0, 100),
+          message: { embeds: [publicEmbed(meetup)], components: [applyButtonRow(meetup)] },
+        });
+        updateMeetup(meetup.id, { forumThreadId: thread.id });
+      } catch (error) {
+        console.error("募集フォーラムへの投稿に失敗しました", error);
+        warnings.push("募集フォーラムへの投稿に失敗しました。");
       }
-
-      const lines = meetups.map(
-        (meetup) =>
-          `**#${meetup.id} ${meetup.name}**\n${discordTimestamp(meetup.startAt)} / ${meetup.mode} / ${meetup.state} / 確定 ${countApproved(meetup.id)}人`,
-      );
-      const embed = new EmbedBuilder()
-        .setTitle("MeetUp一覧")
-        .setDescription(lines.join("\n").slice(0, 4000));
-      await replyEphemeral(interaction, { embeds: [embed] });
-    } catch (error) {
-      await replyError(interaction, error);
     }
-  },
-);
 
-subcommand(
-  new SlashCommandSubcommandBuilder()
-    .setName("show")
-    .setDescription("MeetUpの詳細を表示します")
-    .addIntegerOption((option) =>
-      option.setName("meetup").setDescription("MeetUp ID（専用チャンネル・募集スレッド内なら省略可）"),
-    ),
-  async (interaction) => {
-    try {
-      const guild = await requireGuild(interaction);
-      if (!guild) return;
-
-      const meetup = resolveTargetMeetup(guild, interaction);
-
-      const userId = interaction.user.id;
-      const manager = canManage(meetup, userId);
-      const participant = getParticipant(meetup.id, userId);
-      if (meetup.mode === "PRIVATE" && !manager && !participant) {
-        await replyEphemeral(interaction, "このMeetUpを表示する権限がありません。");
-        return;
-      }
-
-      const includeMeetingPlace = manager || participant?.state === "APPROVED";
-      await replyEphemeral(interaction, { embeds: [meetupEmbed(meetup, { includeMeetingPlace })] });
-    } catch (error) {
-      await replyError(interaction, error);
+    const embed = meetupEmbed(getMeetup(meetup.id) ?? meetup).addFields({
+      name: "専用チャンネル",
+      value: `<#${channel.id}>`,
+      inline: false,
+    });
+    if (warnings.length > 0) {
+      embed.addFields({ name: "注意", value: warnings.join("\n").slice(0, 1024), inline: false });
     }
-  },
-);
+    await replyEphemeral(interaction, { embeds: [embed], components: [createResultRow(meetup.id)] });
+  } catch (error) {
+    await replyError(interaction, error);
+  }
+});

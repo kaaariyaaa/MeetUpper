@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ComponentType } from "discord.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,47 +8,129 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 process.env.DEFAULT_TIMEZONE = "Asia/Tokyo";
 
-const { extractCohostIds } = await import("../src/features/create.ts");
-const { getSubcommands } = await import("../src/core/registry.ts");
+const { createInputFromDraft, createModal, createResultRow, parseCreateForm } = await import(
+  "../src/features/create.ts"
+);
+const { findModal, getSubcommands } = await import("../src/core/registry.ts");
 
-test("create/list/show subcommands are registered", () => {
+test("create is registered without options", () => {
   const entries = getSubcommands();
-  const names = entries.map((entry) => entry.name);
-  expect(names).toContain("create");
-  expect(names).toContain("list");
-  expect(names).toContain("show");
-
   const create = entries.find((entry) => entry.name === "create");
-  const options = create?.builder.toJSON().options ?? [];
-  expect(options.map((option) => option.name)).toEqual([
-    "name",
-    "start",
-    "mode",
-    "capacity",
-    "description",
-    "meeting-time",
-    "meeting-place",
-    "approval",
-    "required-votes",
-    "cohosts",
-    "event",
-    "reminder",
-  ]);
-  // Discord requires every required option to precede all optional options.
-  expect(options.filter((option) => option.required).map((option) => option.name)).toEqual([
-    "name",
-    "start",
-    "mode",
-  ]);
-  const firstOptional = options.findIndex((option) => !option.required);
-  expect(options.slice(firstOptional).every((option) => !option.required)).toBe(true);
-
-  const show = entries.find((entry) => entry.name === "show");
-  expect(show?.builder.toJSON().options?.map((option) => option.name)).toEqual(["meetup"]);
+  expect(create).toBeDefined();
+  expect(create?.builder.toJSON().options ?? []).toEqual([]);
 });
 
-test("extractCohostIds reads mentions and raw ids without duplicates", () => {
-  expect(extractCohostIds("<@123> <@!456>, 789")).toEqual(["123", "456", "789"]);
-  expect(extractCohostIds("123, 123")).toEqual(["123"]);
-  expect(extractCohostIds("")).toEqual([]);
+test("create modal has the four UI-spec fields and cross-feature ids", () => {
+  const json = createModal("abcdef1234").toJSON();
+  expect(json.custom_id).toBe("create:submit:abcdef1234");
+  expect(json.title).toBe("MeetUpを作成");
+
+  const labels = json.components as {
+    label: string;
+    component: { type: ComponentType; custom_id: string; options?: { value: string }[] };
+  }[];
+  expect(labels.map((label) => label.label)).toEqual([
+    "公開モード",
+    "参加方法",
+    "MeetUp名",
+    "開催日時",
+  ]);
+
+  const [mode, approval, name, start] = labels;
+  expect(mode?.component.type).toBe(ComponentType.StringSelect);
+  expect(mode?.component.custom_id).toBe("create:mode");
+  expect(mode?.component.options?.map((option) => option.value)).toEqual(["PUBLIC", "PRIVATE"]);
+
+  expect(approval?.component.type).toBe(ComponentType.StringSelect);
+  expect(approval?.component.custom_id).toBe("create:approval");
+  expect(approval?.component.options?.map((option) => option.value)).toEqual([
+    "DIRECT",
+    "HOST",
+    "VOTE",
+  ]);
+
+  expect(name?.component.type).toBe(ComponentType.TextInput);
+  expect(name?.component.custom_id).toBe("create:name");
+  expect(start?.component.type).toBe(ComponentType.TextInput);
+  expect(start?.component.custom_id).toBe("create:start");
+
+  expect(findModal("create:submit:abcdef1234")?.args).toEqual(["abcdef1234"]);
+});
+
+test("parseCreateForm accepts public joins and enforces private host approval", () => {
+  const base = {
+    mode: "PUBLIC",
+    approval: "DIRECT",
+    name: " テストMeetUp ",
+    start: "2099-01-01 12:00",
+  };
+
+  const direct = parseCreateForm(base, Date.now());
+  expect(direct.name).toBe("テストMeetUp");
+  expect(direct.mode).toBe("PUBLIC");
+  expect(direct.approvalMode).toBe("DIRECT");
+  expect(direct.startAt).toBeGreaterThan(Date.now());
+
+  expect(parseCreateForm({ ...base, mode: "PRIVATE", approval: "HOST" }).approvalMode).toBe("HOST");
+  expect(() => parseCreateForm({ ...base, mode: "PRIVATE", approval: "DIRECT" })).toThrow(
+    /主催者承認/,
+  );
+  expect(() => parseCreateForm({ ...base, mode: "PRIVATE", approval: "VOTE" })).toThrow(
+    /主催者承認/,
+  );
+});
+
+test("parseCreateForm rejects missing selections, names and dates", () => {
+  const base = {
+    mode: "PUBLIC",
+    approval: "DIRECT",
+    name: "テスト",
+    start: "2099-01-01 12:00",
+  };
+
+  expect(() => parseCreateForm({ ...base, mode: null })).toThrow(/公開モード/);
+  expect(() => parseCreateForm({ ...base, approval: null })).toThrow(/参加方法/);
+  expect(() => parseCreateForm({ ...base, name: "   " })).toThrow(/MeetUp名/);
+  expect(() => parseCreateForm({ ...base, start: "not a date" })).toThrow(/解析/);
+  expect(() => parseCreateForm({ ...base, start: "2000-01-01 00:00" })).toThrow(/未来/);
+});
+
+test("create uses the fixed UI-spec defaults", () => {
+  const draft = parseCreateForm(
+    {
+      mode: "PUBLIC",
+      approval: "VOTE",
+      name: "テスト",
+      start: "2099-01-01 12:00",
+    },
+    Date.now(),
+  );
+  const input = createInputFromDraft("guild", "host", draft);
+  expect(input).toMatchObject({
+    guildId: "guild",
+    hostId: "host",
+    description: "",
+    capacity: 0,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "VOTE",
+    requiredVotes: 1,
+    eventEnabled: false,
+    reminderEnabled: true,
+  });
+});
+
+test("success panel links to browse, edit and reminder by fixed ids", () => {
+  const row = createResultRow(42).toJSON();
+  expect(
+    row.components.map((component) => ("label" in component ? component.label : undefined)),
+  ).toEqual([
+    "MeetUpを開く",
+    "編集",
+    "リマインダー",
+  ]);
+  expect(
+    row.components.map((component) => ("custom_id" in component ? component.custom_id : undefined)),
+  ).toEqual(["browse:show:42", "edit:open:42", "reminder:open:42"]);
 });
