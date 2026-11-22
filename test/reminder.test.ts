@@ -182,7 +182,7 @@ test("meeting time is the reminder base; without it the start time is used", () 
   const meeting = makeMeetup({ meetingAt: Date.now() + 3 * DAY });
   expect(scheduleFor(meeting.id, 24 * 60 * 60)?.baseAt).toBe(meeting.meetingAt!);
   const startOnly = makeMeetup();
-  expect(scheduleFor(startOnly.id, 24 * 60 * 60)?.baseAt).toBe(startOnly.startAt);
+  expect(scheduleFor(startOnly.id, 24 * 60 * 60)?.baseAt).toBe(startOnly.startAt!);
 });
 
 test("OFF can keep zero offsets without default times coming back; ON requires one", () => {
@@ -203,7 +203,7 @@ test("OFF keeps settings and does not send; turning ON after the slot passed doe
   expect(getReminderSettings(meetup.id).enabled).toBe(false);
   expect(getReminderOffsets(meetup.id)).toEqual([...DEFAULT_REMINDER_OFFSETS]);
 
-  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt!);
   const fake = fakeDiscord();
   await tickReminders(fake.client, Date.now());
   expect(fake.sent).toHaveLength(0);
@@ -246,7 +246,7 @@ test("notifies host, cohosts and approved once each (deduped)", async () => {
 
 test("host-only notifications are skipped and recorded", async () => {
   const meetup = makeMeetup();
-  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt!);
   const fake = fakeDiscord();
   await tickReminders(fake.client, Date.now());
 
@@ -270,7 +270,7 @@ test("sends within 15 minutes using the actual remaining time, skips older slots
   expect(scheduleFor(meetup.id, 30 * 60)?.status).toBe("SENT");
 
   const expired = makeMeetup({ approved: ["u1"] });
-  forceDue(expired.id, 3 * 60 * 60, Date.now() - 16 * MINUTE, expired.startAt);
+  forceDue(expired.id, 3 * 60 * 60, Date.now() - 16 * MINUTE, expired.startAt!);
   await tickReminders(fake.client, Date.now());
   expect(scheduleFor(expired.id, 3 * 60 * 60)?.status).toBe("SKIPPED");
   expect(fake.sent).toHaveLength(1);
@@ -278,8 +278,8 @@ test("sends within 15 minutes using the actual remaining time, skips older slots
 
 test("multiple due slots send only the newest and skip the rest", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 3 * 60 * 60, Date.now() - 2 * MINUTE, meetup.startAt);
-  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now() - 2 * MINUTE, meetup.startAt!);
+  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt!);
   const fake = fakeDiscord();
   await tickReminders(fake.client, Date.now());
 
@@ -291,7 +291,7 @@ test("multiple due slots send only the newest and skip the rest", async () => {
 
 test("retries after 1, 2, 4 and 8 minutes then fails and DMs the managers", async () => {
   const meetup = makeMeetup({ approved: ["u1"], cohosts: ["c1"] });
-  forceDue(meetup.id, 3 * 60 * 60, Date.now(), meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now(), meetup.startAt!);
   const fake = fakeDiscord({
     send: async () => {
       throw new Error("Discord API 500");
@@ -328,7 +328,7 @@ test("retries after 1, 2, 4 and 8 minutes then fails and DMs the managers", asyn
 
 test("expired SENDING rows are retried after restart; expired ones fail", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt!);
   const schedule = scheduleFor(meetup.id, 30 * 60)!;
   db.query(
     "UPDATE reminder_schedules SET status = 'SENDING', claimed_at = ? WHERE id = ?",
@@ -340,7 +340,7 @@ test("expired SENDING rows are retried after restart; expired ones fail", async 
   expect(getSchedule(schedule.id)?.status).toBe("SENT");
 
   const stale = makeMeetup({ approved: ["u1"] });
-  forceDue(stale.id, 30 * 60, Date.now() - 20 * MINUTE, stale.startAt);
+  forceDue(stale.id, 30 * 60, Date.now() - 20 * MINUTE, stale.startAt!);
   const staleSchedule = scheduleFor(stale.id, 30 * 60)!;
   db.query(
     "UPDATE reminder_schedules SET status = 'SENDING', claimed_at = ? WHERE id = ?",
@@ -363,7 +363,7 @@ test("DM failure sends one channel warning; warning is retried within 24 hours",
   });
   const meetup = makeMeetup({ approved: ["u1"] });
   const scheduledAt = Date.now() - 14 * MINUTE;
-  forceDue(meetup.id, 30 * 60, scheduledAt, meetup.startAt);
+  forceDue(meetup.id, 30 * 60, scheduledAt, meetup.startAt!);
 
   channelAvailable = false;
   await tickReminders(fake.client, Date.now());
@@ -386,7 +386,7 @@ test("DM failure sends one channel warning; warning is retried within 24 hours",
 
 test("channel warnings expire after 24 hours", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 30 * 60, Date.now() - 14 * MINUTE, meetup.startAt);
+  forceDue(meetup.id, 30 * 60, Date.now() - 14 * MINUTE, meetup.startAt!);
   const fake = fakeDiscord({
     dmFail: () => true,
     send: async (payload) => {
@@ -409,7 +409,7 @@ test("channel warnings expire after 24 hours", async () => {
 
 test("settings-only changes keep SENT rows and do not resend the same base/time", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 30 * 60, Date.now() - MINUTE, meetup.startAt!);
   const fake = fakeDiscord();
   await tickReminders(fake.client, Date.now());
   expect(scheduleFor(meetup.id, 30 * 60)?.status).toBe("SENT");
@@ -424,7 +424,7 @@ test("settings-only changes keep SENT rows and do not resend the same base/time"
 
 test("date changes recalculate schedules but keep history and do not resend", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt!);
   const fake = fakeDiscord();
   await tickReminders(fake.client, Date.now());
   expect(scheduleFor(meetup.id, 3 * 60 * 60)?.status).toBe("SENT");
@@ -441,7 +441,7 @@ test("date changes recalculate schedules but keep history and do not resend", as
 
 test("archiving/cancelling stops schedules and warnings while keeping history", async () => {
   const meetup = makeMeetup({ approved: ["u1"] });
-  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt);
+  forceDue(meetup.id, 3 * 60 * 60, Date.now() - MINUTE, meetup.startAt!);
   cancelMeetup(meetup);
   expect(scheduleFor(meetup.id, 3 * 60 * 60)?.status).toBe("SKIPPED");
   const fake = fakeDiscord();
@@ -449,7 +449,7 @@ test("archiving/cancelling stops schedules and warnings while keeping history", 
   expect(fake.sent).toHaveLength(0);
 
   const archived = makeMeetup({ approved: ["u1"] });
-  forceDue(archived.id, 30 * 60, Date.now() - MINUTE, archived.startAt);
+  forceDue(archived.id, 30 * 60, Date.now() - MINUTE, archived.startAt!);
   archiveMeetup(archived);
   expect(scheduleFor(archived.id, 30 * 60)?.status).toBe("SKIPPED");
   expect(listReminderHistory(archived.id, 10, 0).total).toBeGreaterThan(0);
@@ -681,4 +681,28 @@ test("free input modal adds a custom offset and rejects zero", async () => {
   const valid = modalInteraction(`reminder:modal:${sessionId}`, { days: "0", hours: "0", minutes: "45" });
   await modalHandler!.handler(valid.interaction as never, modalHandler!.args);
   expect(JSON.stringify(valid.updates)).toContain("45分前");
+});
+
+test("an undecided date keeps reminder settings but creates no schedules", () => {
+  const meetup = createMeetup({
+    guildId: "g-undecided",
+    hostId: "host",
+    name: "日時未定リマインダー",
+    description: "",
+    capacity: 0,
+    startAt: null,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: false,
+  });
+  expect(listSchedules(meetup.id)).toEqual([]);
+  expect(getReminderOffsets(meetup.id)).toEqual([...DEFAULT_REMINDER_OFFSETS]);
+
+  const startAt = Date.now() + 10 * DAY;
+  updateMeetup(meetup.id, { startAt });
+  recalculateSchedules(meetup.id, { resetAll: true });
+  expect(listSchedules(meetup.id).length).toBe(3);
 });

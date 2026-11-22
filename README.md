@@ -101,7 +101,7 @@ Nix / direnv を使う開発環境の準備や Discord 側の詳しい設定は 
 
 ### 作成と編集
 
-`/meetupper create` は1つのモーダルを開き、**公開モード（Public / Private）・参加方法（直参加 / 主催者承認 / 参加者投票）・MeetUp名・開催日時**の4項目を入力します。開催日時は `YYYY-MM-DD HH:mm` 形式で、`DEFAULT_TIMEZONE`（既定は `Asia/Tokyo`）に従って解釈されます。
+`/meetupper create` は1つのモーダルを開き、**公開モード（Public / Private）・参加方法（直参加 / 主催者承認 / 参加者投票）・MeetUp名・開催日時**の4項目を入力します。開催日時は `YYYY-MM-DD HH:mm` 形式で、`DEFAULT_TIMEZONE`（既定は `Asia/Tokyo`）に従って解釈されます。空欄にすると日時未定のMeetUpとして作成できます。
 
 作成時は定員なし・説明なし・集合情報なし・共同主催者なし・イベント連携OFF・自動リマインダーON（1日前・3時間前・30分前）で始まります。Private の参加方法は主催者承認固定です。参加者投票の必要票数は初期値1で、作成後に `/meetupper edit` で変更します。
 

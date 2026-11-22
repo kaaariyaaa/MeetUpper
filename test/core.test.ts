@@ -67,12 +67,12 @@ test("participant states, votes and reminders", () => {
 
   const updated = updateMeetup(meetup.id, {
     capacity: 5,
-    startAt: meetup.startAt + 60 * 60 * 1000,
+    startAt: meetup.startAt! + 60 * 60 * 1000,
     name: "東京MeetUp（変更後）",
   });
   expect(updated?.capacity).toBe(5);
   expect(updated?.name).toBe("東京MeetUp（変更後）");
-  expect(updated?.startAt).toBe(meetup.startAt + 60 * 60 * 1000);
+  expect(updated?.startAt).toBe(meetup.startAt! + 60 * 60 * 1000);
 
   archiveMeetup(meetup);
   expect(getMeetup(meetup.id)?.state).toBe("ARCHIVED");

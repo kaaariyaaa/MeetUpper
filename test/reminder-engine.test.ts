@@ -157,7 +157,7 @@ test("retries 1, 2, 4 and 8 minutes after each failure within the 15-minute wind
   const t0 = Date.now();
   const name = "retry-timing";
   const meetup = makeMeetup({ name, approved: ["u1"], cohosts: ["c1"] });
-  forceSchedule(meetup.id, THREE_HOURS, t0, meetup.startAt);
+  forceSchedule(meetup.id, THREE_HOURS, t0, meetup.startAt!);
   const id = scheduleFor(meetup.id, THREE_HOURS)!.id;
 
   const fake = fakeDiscord({
@@ -203,7 +203,7 @@ test("stale SENDING rows are retried after a restart while inside the window", a
   const t0 = Date.now();
   const name = "stale-retry";
   const meetup = makeMeetup({ name, approved: ["u1"] });
-  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt, {
+  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt!, {
     status: "SENDING",
     claimedAt: t0 - 2 * MINUTE,
   });
@@ -221,7 +221,7 @@ test("expired stale SENDING rows are skipped without a failure DM", async () => 
   const t0 = Date.now();
   const name = "stale-expired";
   const meetup = makeMeetup({ name, approved: ["u1"], cohosts: ["c1"] });
-  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 20 * MINUTE, meetup.startAt, {
+  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 20 * MINUTE, meetup.startAt!, {
     status: "SENDING",
     claimedAt: t0 - 20 * MINUTE,
     attempts: 2,
@@ -243,8 +243,8 @@ test("multiple due slots send only the newest; only that one is retried", async 
   const t0 = Date.now();
   const name = "multiple-due";
   const meetup = makeMeetup({ name, approved: ["u1"] });
-  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt);
-  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt);
+  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt!);
+  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt!);
   const olderId = scheduleFor(meetup.id, THREE_HOURS)!.id;
   const newestId = scheduleFor(meetup.id, THIRTY_MINUTES)!.id;
 
@@ -272,7 +272,7 @@ test("a settings-only save keeps retry state so the retry still runs", async () 
   const t0 = Date.now();
   const name = "settings-retry";
   const meetup = makeMeetup({ name, approved: ["u1"] });
-  forceSchedule(meetup.id, THREE_HOURS, t0, meetup.startAt);
+  forceSchedule(meetup.id, THREE_HOURS, t0, meetup.startAt!);
   const id = scheduleFor(meetup.id, THREE_HOURS)!.id;
 
   let failing = true;
@@ -302,7 +302,7 @@ test("a settings-only save does not drop an in-window pending notification", asy
   const t0 = Date.now();
   const name = "settings-window";
   const meetup = makeMeetup({ name, approved: ["u1"] });
-  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt);
+  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt!);
   const id = scheduleFor(meetup.id, THIRTY_MINUTES)!.id;
 
   const settings = getReminderSettings(meetup.id);
@@ -319,7 +319,7 @@ test("a settings-only save drops pending rows for removed notification times", a
   const t0 = Date.now();
   const name = "settings-removed";
   const meetup = makeMeetup({ name, approved: ["u1"] });
-  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt);
+  forceSchedule(meetup.id, THIRTY_MINUTES, t0 - 1 * MINUTE, meetup.startAt!);
   const removedId = scheduleFor(meetup.id, THIRTY_MINUTES)!.id;
 
   const settings = getReminderSettings(meetup.id);
@@ -336,7 +336,7 @@ test("turning OFF drops pending rows so an in-window slot is not sent on re-enab
   const t0 = Date.now();
   const name = "off-window";
   const meetup = makeMeetup({ name, startAt: t0 + 2 * 60 * MINUTE });
-  forceSchedule(meetup.id, THREE_HOURS, t0 - 1 * MINUTE, meetup.startAt);
+  forceSchedule(meetup.id, THREE_HOURS, t0 - 1 * MINUTE, meetup.startAt!);
 
   const settings = getReminderSettings(meetup.id);
   saveReminderSettings(meetup.id, settings.version, false, getReminderOffsets(meetup.id), t0);
@@ -355,7 +355,7 @@ test("a FAILED schedule without a failure record is repaired once on the next ti
   const t0 = Date.now();
   const name = "recovery";
   const meetup = makeMeetup({ name, approved: ["u1"], cohosts: ["c1"] });
-  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt, {
+  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt!, {
     status: "FAILED",
     attempts: 1,
     lastError: "Discord API 500",
@@ -399,7 +399,7 @@ test("a FAILED schedule without a failure record is repaired once on the next ti
 test("cancel stops a failure DM whose failure record was never written", async () => {
   const t0 = Date.now();
   const meetup = makeMeetup({ name: "cancel-recovery", approved: ["u1"] });
-  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt, {
+  forceSchedule(meetup.id, THREE_HOURS, t0 - 2 * MINUTE, meetup.startAt!, {
     status: "FAILED",
     attempts: 1,
     updatedAt: t0 - 2 * MINUTE,
@@ -501,7 +501,7 @@ test("a pending warning with no known DM failure is not posted to the channel", 
 test("an expired retry is a failure and DMs managers; a never-attempted row is only skipped", async () => {
   const t0 = Date.now();
   const retried = makeMeetup({ name: "expired-retry", approved: ["u1"], cohosts: ["c1"] });
-  forceSchedule(retried.id, THREE_HOURS, t0 - 20 * MINUTE, retried.startAt, {
+  forceSchedule(retried.id, THREE_HOURS, t0 - 20 * MINUTE, retried.startAt!, {
     attempts: 2,
     lastError: "Discord API 500",
     nextRetryAt: t0 - 19 * MINUTE,
@@ -510,7 +510,7 @@ test("an expired retry is a failure and DMs managers; a never-attempted row is o
   const retriedId = scheduleFor(retried.id, THREE_HOURS)!.id;
 
   const never = makeMeetup({ name: "expired-never", approved: ["u1"] });
-  forceSchedule(never.id, THREE_HOURS, t0 - 20 * MINUTE, never.startAt);
+  forceSchedule(never.id, THREE_HOURS, t0 - 20 * MINUTE, never.startAt!);
   const neverId = scheduleFor(never.id, THREE_HOURS)!.id;
 
   const fake = fakeDiscord();

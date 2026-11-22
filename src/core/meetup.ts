@@ -17,7 +17,7 @@ export interface CreateMeetupInput {
   name: string;
   description: string;
   capacity: number;
-  startAt: number;
+  startAt: number | null;
   meetingAt: number | null;
   meetingPlace: string | null;
   mode: MeetupMode;
@@ -59,9 +59,11 @@ export function createMeetup(input: CreateMeetupInput): Meetup {
 }
 
 /** New/changed meeting times must be future and not later than the start time. */
-export function validateMeetingTime(startAt: number, meetingAt: number | null, now = Date.now()): void {
+export function validateMeetingTime(startAt: number | null, meetingAt: number | null, now = Date.now()): void {
   if (meetingAt === null) return;
-  if (meetingAt > startAt) throw new Error("集合時間は開催日時より後に設定できません。");
+  if (startAt !== null && meetingAt > startAt) {
+    throw new Error("集合時間は開催日時より後に設定できません。");
+  }
   if (meetingAt <= now) throw new Error("集合時間には未来の日時を指定してください。");
 }
 
@@ -102,7 +104,10 @@ export function findMeetupByThreadId(threadId: string): Meetup | null {
 export function listMeetups(guildId: string, states: MeetupState[] = ["ACTIVE"]): Meetup[] {
   const placeholders = states.map(() => "?").join(", ");
   const rows = db
-    .query(`SELECT * FROM meetups WHERE guild_id = ? AND state IN (${placeholders}) ORDER BY start_at ASC`)
+    .query(
+      `SELECT * FROM meetups WHERE guild_id = ? AND state IN (${placeholders})
+       ORDER BY (start_at IS NULL) ASC, start_at ASC`,
+    )
     .all(guildId, ...states) as Parameters<typeof toMeetup>[0][];
   return rows.map(toMeetup);
 }
@@ -177,7 +182,7 @@ export function removeCohost(meetupId: number, userId: string): void {
 
 /** New applications/joins/invitations are only accepted before the start time. */
 export function isParticipationOpen(meetup: Meetup, now = Date.now()): boolean {
-  return meetup.state === "ACTIVE" && meetup.startAt > now;
+  return meetup.state === "ACTIVE" && (meetup.startAt === null || meetup.startAt > now);
 }
 
 export function isHost(meetup: Meetup, userId: string): boolean {

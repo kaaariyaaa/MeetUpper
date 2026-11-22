@@ -326,3 +326,9 @@ test("started meetups reject applications and are excluded from the joinable lis
   expect(applicationDenial(meetup, "user")).toContain("開始済み");
   expect(joinableMeetups("g-started", "user").map((item) => item.id)).not.toContain(meetup.id);
 });
+
+test("meetups with an undecided date still accept applications", () => {
+  const meetup = newMeetup({ guildId: "g-undecided", startAt: null });
+  expect(applicationDenial(meetup, "user")).toBeNull();
+  expect(joinableMeetups("g-undecided", "user").map((item) => item.id)).toContain(meetup.id);
+});

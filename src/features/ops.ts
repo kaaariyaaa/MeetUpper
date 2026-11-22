@@ -333,7 +333,7 @@ modal(/^ops:info-modal:(\d+)$/, async (interaction, args) => {
           await replyEphemeral(interaction, error instanceof Error ? error.message : String(error));
           return;
         }
-      } else if (parsed > meetup.startAt) {
+      } else if (meetup.startAt !== null && parsed > meetup.startAt) {
         await replyEphemeral(interaction, "集合時間は開催日時より後に設定できません。");
         return;
       }

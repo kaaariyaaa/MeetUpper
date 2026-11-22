@@ -74,7 +74,7 @@ export interface CreateDraft {
   mode: MeetupMode;
   approvalMode: ApprovalMode;
   name: string;
-  startAt: number;
+  startAt: number | null;
 }
 
 /** One modal for every create setting; Discord requires the four labels to be static. */
@@ -115,8 +115,8 @@ export function createModal(sessionId: string): ModalBuilder {
     .setCustomId(START_ID)
     .setStyle(TextInputStyle.Short)
     .setMaxLength(32)
-    .setRequired(true)
-    .setPlaceholder("例: 2026-12-01 19:00");
+    .setRequired(false)
+    .setPlaceholder("例: 2026-12-01 19:00（空欄で未定）");
 
   return new ModalBuilder()
     .setCustomId(`create:submit:${sessionId}`)
@@ -133,7 +133,7 @@ export function createModal(sessionId: string): ModalBuilder {
       new LabelBuilder().setLabel("MeetUp名").setTextInputComponent(name),
       new LabelBuilder()
         .setLabel("開催日時")
-        .setDescription(`${config.timeZone} の YYYY-MM-DD HH:mm 形式`)
+        .setDescription(`${config.timeZone} の YYYY-MM-DD HH:mm 形式。空欄の場合は未定になります。`)
         .setTextInputComponent(start),
     );
 }
@@ -148,7 +148,7 @@ function selectedApproval(value: string | null): ApprovalMode {
   throw new Error("参加方法を選択してください。");
 }
 
-/** Validates the modal values: Private stays on host approval and the date must be in the future. */
+/** Validates the modal values: Private stays on host approval and a supplied date must be in the future. */
 export function parseCreateForm(values: CreateFormValues, now = Date.now()): CreateDraft {
   const mode = selectedMode(values.mode);
   // Private is fixed to host approval; ignore a non-HOST modal choice instead of failing the flow.
@@ -158,12 +158,15 @@ export function parseCreateForm(values: CreateFormValues, now = Date.now()): Cre
   if (!name) throw new Error("MeetUp名を入力してください。");
   if (name.length > 100) throw new Error("MeetUp名は100文字以内で入力してください。");
 
-  const startAt = parseDateTime(values.start, config.timeZone);
-  if (startAt === null) {
-    throw new Error(`開催日時を解析できませんでした。\n${dateTimeHint()}`);
-  }
-  if (startAt <= now) {
-    throw new Error("開催日時は未来の日時を指定してください。");
+  let startAt: number | null = null;
+  if (values.start.trim() !== "") {
+    startAt = parseDateTime(values.start, config.timeZone);
+    if (startAt === null) {
+      throw new Error(`開催日時を解析できませんでした。\n${dateTimeHint()}`);
+    }
+    if (startAt <= now) {
+      throw new Error("開催日時は未来の日時を指定してください。");
+    }
   }
 
   return { mode, approvalMode, name, startAt };

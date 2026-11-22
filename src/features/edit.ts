@@ -64,7 +64,7 @@ export interface EditDraft {
   name: string;
   description: string;
   capacity: number;
-  startAt: number;
+  startAt: number | null;
   approvalMode: ApprovalMode;
   requiredVotes: number;
   meetingAt: number | null;
@@ -111,7 +111,7 @@ export function validateDraft(
   draft: EditDraft,
   mode: Meetup["mode"],
   now = Date.now(),
-  options: { originalMeetingAt?: number | null; originalStartAt?: number } = {},
+  options: { originalMeetingAt?: number | null; originalStartAt?: number | null } = {},
 ): void {
   if (!draft.name.trim()) throw new Error("MeetUp名を入力してください。");
   if (draft.name.trim().length > 100) throw new Error("MeetUp名は100文字以内で入力してください。");
@@ -131,11 +131,11 @@ export function validateDraft(
     throw new Error("イベント連携はPublicのMeetUpのみ設定できます。");
   }
   const startChanged = options.originalStartAt === undefined || options.originalStartAt !== draft.startAt;
-  if (startChanged && draft.startAt <= now) {
+  if (startChanged && draft.startAt !== null && draft.startAt <= now) {
     throw new Error("開催日時は未来の日時を指定してください。");
   }
   if (draft.meetingAt !== null) {
-    if (draft.meetingAt > draft.startAt) {
+    if (draft.startAt !== null && draft.meetingAt > draft.startAt) {
       throw new Error("集合時間は開催日時より後に設定できません。");
     }
     // An already stored past meeting time may remain; only a newly changed one must be future.
@@ -167,7 +167,11 @@ function hubEmbed(meetup: Meetup, draft: EditDraft, notice?: string): EmbedBuild
     .addFields(
       { name: "名前", value: draft.name.slice(0, 100) || "（未設定）", inline: true },
       { name: "定員", value: capacityLabel(draft.capacity), inline: true },
-      { name: "開催日時", value: discordTimestamp(draft.startAt), inline: true },
+      {
+        name: "開催日時",
+        value: draft.startAt === null ? "未定" : discordTimestamp(draft.startAt),
+        inline: true,
+      },
       { name: "説明", value: draft.description.slice(0, 1000) || "説明なし", inline: false },
       { name: "参加方法", value: approvalText(draft), inline: true },
       {
@@ -241,7 +245,7 @@ function hubComponents(
           .setCustomId(`edit:event:${sessionId}`)
           .setLabel(`イベント連携: ${draft.eventEnabled ? "ON" : "OFF"}`)
           .setStyle(draft.eventEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
-          .setDisabled(meetup.mode !== "PUBLIC"),
+          .setDisabled(meetup.mode !== "PUBLIC" || draft.startAt === null),
       )
       .addComponents(...people),
     links,
@@ -289,10 +293,12 @@ function basicModal(sessionId: string, draft: EditDraft): ModalBuilder {
         required: true,
         maxLength: 4,
       }),
-      textInputRow("start", "開催日時 (YYYY-MM-DD HH:mm)", formatInZone(draft.startAt), {
-        required: true,
-        maxLength: 32,
-      }),
+      textInputRow(
+        "start",
+        "開催日時 (YYYY-MM-DD HH:mm・空欄で未定)",
+        draft.startAt === null ? "" : formatInZone(draft.startAt),
+        { required: false, maxLength: 32 },
+      ),
     );
 }
 
@@ -528,7 +534,7 @@ export async function commitDraft(
   let updated = getMeetup(meetup.id)!;
   const warnings: string[] = [];
 
-  if (updated.mode === "PUBLIC" && updated.eventEnabled) {
+  if (updated.mode === "PUBLIC" && updated.eventEnabled && updated.startAt !== null) {
     if (hadEventId) {
       await updateEvent(guild, updated);
     } else if (!(await syncEventCreation(guild, updated))) {
@@ -540,6 +546,9 @@ export async function commitDraft(
     await cancelEvent(guild, updated);
     updateMeetup(updated.id, { eventId: null });
     updated = getMeetup(updated.id)!;
+  }
+  if (updated.mode === "PUBLIC" && updated.eventEnabled && updated.startAt === null) {
+    warnings.push("開催日時が未定のため、スケジュールイベントは作成していません。");
   }
 
   if (updated.mode === "PUBLIC") {
@@ -833,15 +842,24 @@ modal(/^edit:basic:([A-Za-z0-9]+)$/, async (interaction, args) => {
     // Keeping the shown value preserves the exact stored timestamp (and avoids a reminder rebuild
     // caused only by reformatting seconds away).
     let startAt: number | null;
-    if (startText === formatInZone(draft.startAt)) {
+    if (draft.startAt !== null && startText === formatInZone(draft.startAt)) {
       startAt = draft.startAt;
+    } else if (startText === "") {
+      startAt = null;
     } else {
-      startAt = startText ? parseDateTime(startText) : null;
+      startAt = parseDateTime(startText);
+      if (startAt === null) {
+        throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
+      }
     }
-    if (startAt === null) {
-      throw new Error(`開催日時の形式が正しくありません。${dateTimeHint()}`);
-    }
-    const candidate: EditDraft = { ...draft, name, description, capacity, startAt };
+    const candidate: EditDraft = {
+      ...draft,
+      name,
+      description,
+      capacity,
+      startAt,
+      eventEnabled: startAt === null ? false : draft.eventEnabled,
+    };
     validateDraft(candidate, meetup.mode, Date.now(), {
       originalMeetingAt: meetup.meetingAt,
       originalStartAt: meetup.startAt,

@@ -102,7 +102,9 @@ export function meetupSelectRow(
           .setValue(String(meetup.id))
           .setDescription(
             (description ??
-              `#${meetup.id} / ${meetup.mode} / ${meetup.state} / ${discordTimestamp(meetup.startAt, "d")}`)
+              `#${meetup.id} / ${meetup.mode} / ${meetup.state} / ${
+                meetup.startAt === null ? "日時未定" : discordTimestamp(meetup.startAt, "d")
+              }`)
               .slice(0, 100),
           ),
       ),

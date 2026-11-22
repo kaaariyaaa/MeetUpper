@@ -21,7 +21,11 @@ export function meetupEmbed(meetup: Meetup, options: { includeMeetingPlace?: boo
     .setColor(meetup.state === "ACTIVE" ? 0x2ecc71 : meetup.state === "ARCHIVED" ? 0x95a5a6 : 0xe74c3c)
     .setDescription(meetup.description || "説明はありません。")
     .addFields(
-      { name: "日時", value: discordTimestamp(meetup.startAt), inline: true },
+      {
+        name: "日時",
+        value: meetup.startAt === null ? "未定" : discordTimestamp(meetup.startAt),
+        inline: true,
+      },
       { name: "定員", value: `${capacityLabel(meetup.capacity)}（確定 ${approved}人）`, inline: true },
       { name: "公開モード", value: MODE_LABEL[meetup.mode], inline: true },
       { name: "承認方式", value: approvalLabel(meetup), inline: true },

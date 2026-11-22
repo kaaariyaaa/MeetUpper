@@ -16,7 +16,7 @@ export function publicEventDescription(meetup: Meetup): string {
 }
 
 async function createEvent(guild: Guild, meetup: Meetup): Promise<GuildScheduledEvent | null> {
-  if (!meetup.eventEnabled || meetup.mode !== "PUBLIC") return null;
+  if (!meetup.eventEnabled || meetup.mode !== "PUBLIC" || meetup.startAt === null) return null;
   try {
     const event = await guild.scheduledEvents.create({
       name: meetup.name.slice(0, 100),
@@ -63,7 +63,7 @@ export async function cancelEvent(guild: Guild, meetup: Meetup): Promise<void> {
 }
 
 export async function updateEvent(guild: Guild, meetup: Meetup): Promise<void> {
-  if (!meetup.eventId) return;
+  if (!meetup.eventId || meetup.startAt === null) return;
   try {
     const event = await guild.scheduledEvents.fetch(meetup.eventId);
     await event.edit({

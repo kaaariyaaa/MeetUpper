@@ -19,8 +19,8 @@ export interface Meetup {
   description: string;
   /** 0 means no limit. */
   capacity: number;
-  /** Epoch ms (UTC). */
-  startAt: number;
+  /** Epoch ms (UTC). Null means the date is undecided. */
+  startAt: number | null;
   /** Epoch ms (UTC), separate from startAt. */
   meetingAt: number | null;
   meetingPlace: string | null;

@@ -48,6 +48,12 @@ function basisLabel(meetup: Meetup): "集合" | "開催" {
 
 export function reminderEmbed(meetup: Meetup, schedule: ReminderSchedule, now: number): EmbedBuilder {
   const baseAt = reminderBaseAt(meetup);
+  if (baseAt === null) {
+    return new EmbedBuilder()
+      .setTitle("⏰ リマインド")
+      .setColor(0x5865f2)
+      .setDescription(`MeetUp「${meetup.name}」の日時は未定です。`);
+  }
   const basis = basisLabel(meetup);
   const embed = new EmbedBuilder()
     .setTitle("⏰ リマインド")
@@ -55,7 +61,11 @@ export function reminderEmbed(meetup: Meetup, schedule: ReminderSchedule, now: n
     .setDescription(
       `MeetUp「${meetup.name}」の${basis}まで**${remainingMinutes(baseAt, now)}分**です。`,
     )
-    .addFields({ name: "開催日時", value: discordTimestamp(meetup.startAt), inline: true });
+    .addFields({
+      name: "開催日時",
+      value: meetup.startAt === null ? "未定" : discordTimestamp(meetup.startAt),
+      inline: true,
+    });
   if (meetup.meetingAt !== null) {
     embed.addFields({ name: "集合時間", value: discordTimestamp(meetup.meetingAt), inline: true });
   }
@@ -200,7 +210,11 @@ async function sendReminder(
   const retryWindowEnd = schedule.scheduledAt + REMINDER_WINDOW_MS - 60_000;
   const retryAt = delay === undefined ? null : Math.min(now + delay, retryWindowEnd);
   const canRetry =
-    retryAt !== null && retryAt > now && retryAt <= retryWindowEnd && now < baseAt;
+    baseAt !== null &&
+    retryAt !== null &&
+    retryAt > now &&
+    retryAt <= retryWindowEnd &&
+    now < baseAt;
   if (canRetry && retryAt !== null) {
     scheduleRetry(schedule.id, attempts, retryAt, error, now);
     return;
@@ -231,7 +245,14 @@ async function processDueMeetup(
     }
     return;
   }
-  if (now >= reminderBaseAt(meetup)) {
+  const baseAt = reminderBaseAt(meetup);
+  if (baseAt === null) {
+    for (const schedule of schedules) {
+      finishSchedule(schedule.id, "SKIPPED", "開催日時が未定のため送信しない", null, now);
+    }
+    return;
+  }
+  if (now >= baseAt) {
     for (const schedule of schedules) {
       finishSchedule(schedule.id, "SKIPPED", "通知基準日時を過ぎたため送信しない", null, now);
     }
@@ -307,7 +328,9 @@ export async function tickReminders(client: Client, now = Date.now()): Promise<v
         !meetup ||
         meetup.state !== "ACTIVE" ||
         now > schedule.scheduledAt + REMINDER_WINDOW_MS ||
-        (meetup !== null && now >= reminderBaseAt(meetup));
+        (meetup !== null &&
+          reminderBaseAt(meetup) !== null &&
+          now >= (reminderBaseAt(meetup) as number));
       if (!expired) {
         resetSendingToPending(schedule.id, now);
         continue;

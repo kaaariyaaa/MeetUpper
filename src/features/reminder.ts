@@ -126,7 +126,9 @@ function panelEmbed(meetup: Meetup, draft: Draft, notice?: string): EmbedBuilder
     .setDescription(
       [
         `自動通知: **${draft.enabled ? "ON" : "OFF"}**`,
-        `通知基準: ${meetup.meetingAt !== null ? "集合時間" : "開催日時"} ${discordTimestamp(baseAt)}`,
+        baseAt === null
+          ? "通知基準: 未定（開催日時が未設定）"
+          : `通知基準: ${meetup.meetingAt !== null ? "集合時間" : "開催日時"} ${discordTimestamp(baseAt)}`,
         sameSettings(draft, meetup.id) ? null : "未保存の変更があります。",
         notice ?? null,
       ]
@@ -139,6 +141,10 @@ function panelEmbed(meetup: Meetup, draft: Draft, notice?: string): EmbedBuilder
     embed.addFields({ name: "通知時刻", value: "設定なし", inline: false });
   }
   for (const offset of draft.offsets) {
+    if (baseAt === null) {
+      embed.addFields({ name: formatOffset(offset), value: "日時未定", inline: true });
+      continue;
+    }
     const scheduledAt = baseAt - offset * 1000;
     const schedule = schedules.find(
       (item) => item.baseAt === baseAt && item.offsetSeconds === offset,

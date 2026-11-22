@@ -8,7 +8,7 @@ const { db: testDb } = await import("../src/db.ts");
 testDb.exec("DELETE FROM meetups");
 
 const { createMeetup } = await import("../src/core/meetup.ts");
-const { cancelEvent } = await import("../src/core/events.ts");
+const { cancelEvent, syncEventCreation } = await import("../src/core/events.ts");
 
 function makeMeetup(eventId: string | null) {
   const meetup = createMeetup({
@@ -59,4 +59,23 @@ test("cancelEvent is a no-op without an event and skips already cancelled events
   await cancelEvent(guild as never, makeMeetup(null) as never);
   await cancelEvent(guild as never, makeMeetup("event-1") as never);
   expect(calls).toEqual([]);
+});
+
+test("an undecided date does not create a scheduled event", async () => {
+  const meetup = createMeetup({
+    guildId: "g1",
+    hostId: "host",
+    name: "日時未定",
+    description: "",
+    capacity: 0,
+    startAt: null,
+    meetingAt: null,
+    meetingPlace: null,
+    mode: "PUBLIC",
+    approvalMode: "HOST",
+    requiredVotes: 1,
+    eventEnabled: true,
+  });
+  const result = await syncEventCreation({} as never, meetup);
+  expect(result).toBeNull();
 });

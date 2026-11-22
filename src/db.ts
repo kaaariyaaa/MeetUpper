@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS meetups (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   capacity INTEGER NOT NULL,
-  start_at INTEGER NOT NULL,
+  start_at INTEGER,
   meeting_at INTEGER,
   meeting_place TEXT,
   mode TEXT NOT NULL,
@@ -191,6 +191,57 @@ if (!failureColumns.some((column) => column.name === "error")) {
   db.exec("ALTER TABLE reminder_failures ADD COLUMN error TEXT");
 }
 
+// Older databases stored start_at as NOT NULL. Rebuild once so the date can be 未定 (NULL).
+const meetupColumns = db.query("PRAGMA table_info(meetups)").all() as {
+  name: string;
+  notnull: number;
+}[];
+const startColumn = meetupColumns.find((column) => column.name === "start_at");
+if (startColumn?.notnull === 1) {
+  db.exec("PRAGMA foreign_keys = OFF;");
+  try {
+    db.exec("BEGIN");
+    db.exec(`
+      CREATE TABLE meetups_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        host_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        capacity INTEGER NOT NULL,
+        start_at INTEGER,
+        meeting_at INTEGER,
+        meeting_place TEXT,
+        mode TEXT NOT NULL,
+        approval_mode TEXT NOT NULL DEFAULT 'HOST',
+        required_votes INTEGER NOT NULL DEFAULT 1,
+        event_enabled INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'ACTIVE',
+        channel_id TEXT,
+        forum_thread_id TEXT,
+        event_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO meetups_new
+        (id, guild_id, host_id, name, description, capacity, start_at, meeting_at, meeting_place,
+         mode, approval_mode, required_votes, event_enabled, state, channel_id, forum_thread_id,
+         event_id, created_at)
+      SELECT id, guild_id, host_id, name, description, capacity, start_at, meeting_at, meeting_place,
+             mode, approval_mode, required_votes, event_enabled, state, channel_id, forum_thread_id,
+             event_id, created_at
+      FROM meetups;
+      DROP TABLE meetups;
+      ALTER TABLE meetups_new RENAME TO meetups;
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON;");
+  }
+}
+
 interface MeetupRow {
   id: number;
   guild_id: string;
@@ -198,7 +249,7 @@ interface MeetupRow {
   name: string;
   description: string;
   capacity: number;
-  start_at: number;
+  start_at: number | null;
   meeting_at: number | null;
   meeting_place: string | null;
   mode: string;

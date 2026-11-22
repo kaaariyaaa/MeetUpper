@@ -39,7 +39,10 @@ export class ReminderVersionConflictError extends Error {
   }
 }
 
-export function reminderBaseAt(meetup: { meetingAt: number | null; startAt: number }): number {
+export function reminderBaseAt(meetup: {
+  meetingAt: number | null;
+  startAt: number | null;
+}): number | null {
   return meetup.meetingAt ?? meetup.startAt;
 }
 
@@ -153,7 +156,10 @@ export function recalculateSchedules(meetupId: number, options: RecalculateOptio
   const enabled = getReminderSettings(meetupId).enabled;
 
   db.transaction(() => {
-    if (options.resetAll) {
+    if (baseAt === null) {
+      // Without a base date there is nothing to schedule; keep audit/history rows as-is.
+      db.query("DELETE FROM reminder_schedules WHERE meetup_id = ? AND status <> 'SENT'").run(meetupId);
+    } else if (options.resetAll) {
       db.query("DELETE FROM reminder_schedules WHERE meetup_id = ?").run(meetupId);
     } else if (!enabled) {
       // Turning OFF stops unsent reminders; retry state and audit rows stay for history.
@@ -175,7 +181,7 @@ export function recalculateSchedules(meetupId: number, options: RecalculateOptio
       .all(meetupId) as { base_at: number; offset_seconds: number }[];
     const sent = new Set(sentRows.map((row) => `${row.base_at}:${row.offset_seconds}`));
     for (const offset of offsets) {
-      if (!enabled) continue;
+      if (!enabled || baseAt === null) continue;
       if (sent.has(`${baseAt}:${offset}`)) continue;
       const scheduledAt = baseAt - offset * 1000;
       if (scheduledAt <= now) continue;
